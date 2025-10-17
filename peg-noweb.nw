@@ -1,47 +1,44 @@
 \documentclass{article}
 
 \usepackage{hyperref}
+\usepackage{quoting,xparse}
 \usepackage{biblatex}
 \usepackage{noweb}
 
 \newcommand{\whyse}{\textsc{WHYSE}}
 
+%% NOTE: the following new document commmand and environment were provided by
+%% StackExchange user egreg (https://tex.stackexchange.com/a/391739); the code
+%% is subject to the "Attribution-ShareAlike 3.0 Unported" license
+%% (https://creativecommons.org/licenses/by-sa/3.0/), which is published by
+%% Creative Commons.
+\NewDocumentCommand{\bywhom}{m}{% the Bourbaki trick
+  {\nobreak\hfill\penalty50\hskip1em\null\nobreak
+   \hfill\mbox{\normalfont(#1)}%
+   \parfillskip=0pt \finalhyphendemerits=0 \par}%
+}
+\NewDocumentEnvironment{pquotation}{m}
+  {\begin{quoting}[
+     indentfirst=true,
+     leftmargin=\parindent,
+     rightmargin=\parindent]\itshape}
+  {\bywhom{#1}\end{quoting}}
+
 \begin{document}
 
 \begin{abstract}
-  The first official release of \whyse{} isn't planned to utilize PEG parsing in
-  any of its features, but the PEG parser implemented in this Emacs package was
-  developed early, before considering using Ref\TeX{} and AUC\TeX{} as a basis
-  for implementing things like navigation, croff-reference management, table of
-  contents, label browsing, etc.
-
   The \textsc{peg} package for \textsc{Emacs} provides automatic parser
-  generation from a formal PEG grammar. The grammar for noweb used in this
+  generation from a formal grammar. The grammar for noweb released in this
   package is based off of the description of \emph{the tool syntax} given in the
   \cite[Noweb Hacker's Guide]{ramsey1992}.
 
-  Every character of an input text to be parsed by parsing expressions in a PEG
-  must be defined in terminal rules of the formal grammar.
-  %% NOTE: to match the new line character in a text stream, the string literal
-  %% "\n" must be included. The (eol) PEG rule /tests/ for the end of line by
-  %% guarding against unintended evaluation of the boolean return value of the
-  %% standard Emacs Lisp (eolp). To test if point is at the end of a line, use
-  %% (eol); to match the end of line, and permit parsing the next line of input,
-  %% include the string literal "\n".
-  The root rule in the grammar for Noweb tool syntax is named [[noweb]], so with
-  [[<<PEG rules>>]] in scope a match using the root rule [[noweb]] is attempted
-  against the current buffer. The current buffer must contain the tool syntax
-  produced by \texttt{noweave} and passed to any one of the default or
-  additional filters specified on the command line.
-
-  To further the development of \whyse{}, packaging [[<<PEG rules>>]] as an
-  independent peg package extension allows me to forget about this subproject
-  while I focus on Ref\TeX{} and AUC\TeX{} as foundational layers for
-  implementing \whyse{}.
-
-  Writing a useful pulic interface to the parse tree before continuing on any
-  other adventure in WHYSE-land may help me complete this subproject, at least.
-  It would also allow me to utilize any parse tree more effectively.
+  The formal grammar for Norman Ramsey's popular Noweb was completed during the
+  early development of \whyse{}, a package separate from this one. Having a
+  complete formal grammar, the resulting parse tree from the automatically
+  generated parser was nearly complete: only traversal and manipulation of that
+  tree were insufficiently developed. Writing a useful pulic interface to the
+  parse tree before continuing on any other adventure in WHYSE-land may help me
+  complete this subproject, at least.
 \end{abstract}
 
 \section{The \textit{PEG Noweb} Emacs Package}
@@ -100,18 +97,168 @@ any relevant third-party copyright notices.
 ;; <https://www.gnu.org/licenses/>.
 @
 
-\subsection{Package Code}
-\label{sec:pkg-code}
+\section{Public Interface}
+\label{sec:pkg-interface}
 
-All package code will be included in the [[<<code>>]] module. At first the only
-code included in the package will be the [[noweb]] PEG ruleset, because that is
-complete. A public API for the interacting with the ruleset and texts which
-should match the grammar it defines will be defined after the set of rules.
+The public interface of the package should include some basic programming
+facilities, otherwise it would be difficult to program any application with only
+the ruleset. In pursuit of that, I'll endure the difficulty and any advances I
+make will become part of the public interface before I take suggestions.
+
+Before I suffer well through discovering a useful interface to a PEG ruleset and
+the result of parsing a text which matches the root rule \texttt{noweb} in that
+set, I will conduct some research to see ``what interfaces to PEG grammars are
+typically provided''.
+% NOTE: Are there many from which I can draw a conclusion about
+% the typical interface? I don't think it's likely.
+
+\begin{list}{}{}
+\item \textit{Raincode Crossbow}'s PEG grammar documentation: https://www.raincode.com/docs/PEGGrammar/UserGuide.html#_raincode_peg_grammar.
+\item Babble (programming language) Parser code commentary: https://github.com/rottytooth/Babble/blob/main/Parser/babble.pegjs.
+\end{list}
+
+In a second glance, \textit{Raincode Crossbow} doesn't provide \textit{a
+  grammar} with an API thereto the product is instead a \textit{parser
+  generator}. The code commentary in the Babble programming language isn't
+documentation for an API wrapping the grammar. I may be in uncharted territory,
+but researching odd topics in computer science can be difficult.
+
+There should some input and output functionality at least: a text in a buffer
+must be supplied to the function \texttt{with-peg-rules}.
+
+\begin{verbatim}
+(with-peg-rules (peg-noweb-ruleset)
+  BODY)
+\end{verbatim}
+
+Whatever happens in BODY that I like to do during development is likely
+something that should be packaged.
+
+Adapted from \texttt{lm-with-file} from \texttt{lisp-mnt.el}, I provide
+\texttt{peg-noweb-with-file}. The file argument is the file which will be passed
+to \texttt{nomarkup}, and the output is captured by Emacs.
+
+To utilize \textit{nomarkup}, the customization variable
+\texttt{peg-noweb-filter-path} must be set, otherwise the default value will
+come from parsing the standard error of \texttt{noweave -v}, a cental command
+distributed in Noweb which must be on the user's PATH.
+
+<<code>>=
+(defgroup peg-noweb ()
+  "Customization Variables affecting PEG Noweb, the peg package extension library providing a ruleset for the Noweb tool syntax.")
+
+(defcustom peg-noweb-filter-directory
+  (and (= 0 (shell-command "which noweave"))
+       (with-temp-buffer (shell-command "noweave -v -n" (get-buffer (current-buffer)))
+                         (file-name-directory (buffer-substring (goto-line 3) (- (point-at-eol) 2)))))
+  "The directory containing Noweb filters, which also contains the executable `markup' in particular."
+  :group 'peg-noweb)
+
+;; FIXME: the current parse tree contains a `nil' after the chunk type
+;; and number assoc, and that needs to be analyzed. Why is this `nil' in
+;; the stack? I assume and believe it is because of the collapsing of
+;; stringy tokens; when a token should be put back onto the stack it may
+;; also be putting a `nil' onto the stack in the first call to the
+;; function.
+(defmacro peg-noweb-with-file (file &rest body)
+  "Execute BODY in a buffer containing the contents of FILE.
+
+The result is nil when FILE is nil, parsing is unsuccessful, or if
+`peg-noweb-filter-directory' has a computed default value of nil.
+
+This function evaluates BODY after running the \"noweb\" root rule using
+the `peg-noweb-ruleset' ruleset `with-peg-rules', which is the grammar for a
+noweb file marked up for noweb filters. When BODY is evaluated `filesym'
+will be a symbol pointing to FILE and `parse-tree' will be the result of
+parsing."
+  (declare (indent 1) (debug t))
+  (when peg-noweb-filter-directory
+    (let ((filesym (make-symbol "file"))
+          (parse-tree `(let ((,filesym ,file))
+                         (when ,filesym
+	                         (with-temp-buffer
+	                           (insert-file-contents ,filesym)
+                             (call-process (expand-file-name "markup" peg-noweb-filter-directory))
+	                           (emacs-lisp-mode)
+	                           ,@body
+                             (goto-char (point-min))
+                             ;; Switching major modes is too drastic, so just switch
+                             ;; temporarily to the Emacs Lisp mode syntax table.
+                             (with-syntax-table emacs-lisp-mode-syntax-table
+                               (with-peg-rules '(peg-noweb-ruleset)
+                                 (let (peg-noweb--parser-within-codep
+                                       (peg-noweb--first-stringy-token? t))
+                                   (peg-run (peg noweb) #'peg-noweb--parse-failure)))))))))
+      (when peg-noweb--parse-success
+        ,@body))))
+
+(defun peg-noweb--parse-failure (lst)
+  "This lambda was historically named `w--parse-failure-function'."
+  (setq peg-noweb--parse-success nil)
+  (pop-to-buffer (clone-buffer))
+  (save-excursion
+    (put-text-property (point) (point-min)
+                       'face 'success)
+
+    (put-text-property (point) (point-max)
+                       'face 'error)
+
+    (goto-char (point-max))
+    (message "PEXes which failed:\n%S" lst)))
+
+(defvar peg-noweb--parse-success t; a global variable
+  "The success or failure of the last parsing of noweb tool syntax.")
+
+@
+
+\section{A grammar of the Noweb tool markup}
+\label{sec:markup-grammar}
+
+\begin{quotation}% I`m quoting myself, so I don't need any attribution. This is
+                 % just old text I haven't gotten rid of yet.
+  Every character of an input text to be parsed by \textit{parsing expressions} in a PEG
+  must be defined in terminal rules of the formal grammar.
+  %% NOTE: to match the new line character in a text stream, the string literal
+  %% "\n" must be included. The (eol) PEG rule /tests/ for the end of line by
+  %% guarding against unintended evaluation of the boolean return value of the
+  %% standard Emacs Lisp (eolp). To test if point is at the end of a line, use
+  %% (eol); to match the end of line, and permit parsing the next line of input,
+  %% include the string literal "\n".
+  The root rule in the grammar for Noweb tool syntax is named \texttt{noweb}, so
+  with \texttt{<<PEG rules>>} in scope a match using the root rule
+  \texttt{noweb} is attempted against the current buffer. The current buffer
+  must contain the tool syntax produced by \texttt{noweave} and passed to any
+  one of the default or additional filters specified on the command line.
+
+  To further the development of \whyse{}, packaging \texttt{<<PEG rules>>} as an
+  independent peg package extension allows me to forget about this subproject
+  while I focus on Ref\TeX{} and AUC\TeX{} as foundational layers for
+  implementing \whyse{}.
+\end{quotation}
+
+The grammar of Noweb's tool syntax can be sectioned into five pieces, each
+piece covering some aspect of parsing.
+
+<<PEG rules>>=
+<<high-level Noweb tool syntax structure>>
+<<files and their paths>>
+<<chunks and their boundaries>>
+<<quotations>>
+<<keyword definitions>>
+<<meta rules>>
+@
+
+The \texttt{noweb} rule is the root expression which will match an instance of
+the Noweb tool syntax. Erroneous or incomplete texts will not match. The root
+rule is just one rule among many defined within the \texttt{noweb-markup} PEG
+ruleset. A public API for the interacting with texts matched by the
+\texttt{noweb} rule when using the ruleset, and texts which should match the
+grammar it defines are given in other sections.
 
 <<code>>=
 <<PEG rules>>
 
-(define-peg-ruleset noweb-markup
+(define-peg-ruleset peg-noweb-ruleset
   '(noweb
 
     nl
@@ -184,125 +331,10 @@ should match the grammar it defines will be defined after the set of rules.
 
 @ 
 
-\section{Public Interface}
-\label{sec:pkg-interface}
-
-The public interface of the package should include some basic programming
-facilities, otherwise it would be difficult to program any application with the
-only the ruleset. In pursuit of that, I'll endure the difficulty and any
-advances I make will become part of the public interface before I take
-suggestions.
-
-Before I suffer well the difficulty of learning what a useful interface to a
-packaged PEG
-ruleset and the result of parsing a text which matches the root rule [[noweb]]
-I will conduct some research to see what interfaces to PEG grammars are
-typically provided.
-
-There should some input and output functionality at least: a text in a buffer
-must be supplied to the function \texttt{with-peg-rules}. A function to do this
-doesn't need to be packaged, but would be convenient.
-
-Adapted from \texttt{lm-with-file} from \texttt{lisp-mnt.el},
-I provide \texttt{peg-noweb-with-file}.
-The file argument is the file which will be passed to nomarkup,
-and the output is captured by Emacs.
-
-To utilze nomarkup the customization variable peg-noweb-filter-path must be set,
-otherwise the default value will come from parsing the output of noweave, which
-must be on the path.
-
-<<code>>=
-(defgroup peg-noweb ()
-  "Customization Variables affecting PEG Noweb, the peg package extension library providing a ruleset for the Noweb tool syntax.")
-
-(defcustom peg-noweb-filter-directory
-  (and (= 0 (shell-command "which noweave"))
-       (with-temp-buffer (shell-command "noweave -v -n" (get-buffer (current-buffer)))
-                         (file-name-directory (buffer-substring (goto-line 3) (- (point-at-eol) 2)))))
-  "The directory containing Noweb filters, which also contains the executable `markup' in particular."
-  :group 'peg-noweb)
-
-;; FIXME: the current parse tree contains a `nil' after the chunk type
-;; and number assoc, and that needs to be analyzed. Why is this `nil' in
-;; the stack? I assume and believe it is because of the collapsing of
-;; stringy tokens; when a token should be put back onto the stack it may
-;; also be putting a `nil' onto the stack in the first call to the
-;; function.
-(defmacro peg-noweb-with-file (file &rest body)
-  "Execute BODY in a buffer containing the contents of FILE.
-
-The result is nil when FILE is nil, parsing is unsuccessful, or if
-`peg-noweb-filter-directory' has a computed default value of nil.
-
-This function evaluates BODY after running the \"noweb\" root rule using
-the `noweb-markup' ruleset `with-peg-rules', which is the grammar for a
-noweb file marked up for noweb filters. When BODY is evaluated `filesym'
-will be a symbol pointing to FILE and `parse-tree' will be the result of
-parsing."
-  (declare (indent 1) (debug t))
-  (when peg-noweb-filter-directory
-    (let ((filesym (make-symbol "file"))
-          (parse-tree `(let ((,filesym ,file))
-                         (when ,filesym
-	                         (with-temp-buffer
-	                           (insert-file-contents ,filesym)
-                             (call-process (expand-file-name "markup" peg-noweb-filter-directory))
-	                           (emacs-lisp-mode)
-	                           ,@body
-                             (goto-char (point-min))
-                             ;; Switching major modes is too drastic, so just switch
-                             ;; temporarily to the Emacs Lisp mode syntax table.
-                             (with-syntax-table emacs-lisp-mode-syntax-table
-                               (with-peg-rules '(noweb-markup)
-                                 (let (peg-noweb--parser-within-codep
-                                       (peg-noweb--first-stringy-token? t))
-                                   (peg-run (peg noweb) #'peg-noweb--parse-failure)))))))))
-      (when peg-noweb--parse-success
-        ,@body))))
-
-(defun peg-noweb--parse-failure (lst)
-  "This lambda was historically named `w--parse-failure-function'."
-  (setq peg-noweb--parse-success nil)
-  (pop-to-buffer (clone-buffer))
-  (save-excursion
-    (put-text-property (point) (point-min)
-                       'face 'success)
-
-    (put-text-property (point) (point-max)
-                       'face 'error)
-
-    (goto-char (point-max))
-    (message "PEXes which failed:\n%S" lst)))
-
-(defvar peg-noweb--parse-success t; a global variable
-  "The success or failure of the last parsing of noweb tool syntax.")
-
-@
-
-\section{A grammar of the Noweb tool markup}
-\label{sec:markup-grammar}
-
-The grammar of Noweb's tool syntax can be sectioned into five pieces, each
-piece covering some aspect of parsing.
-
-<<PEG rules>>=
-<<high-level Noweb tool syntax structure>>
-<<files and their paths>>
-<<chunks and their boundaries>>
-<<quotations>>
-<<keyword definitions>>
-<<meta rules>>
-@
-
-The [[noweb]] rule is the root expression which will match an instance of the
-Noweb tool syntax. Erroneous or incomplete texts will not match.
-
-As stated, the [[noweb]] rule defines the root expression---or starting
-expression---for the grammar. The tool syntax of Noweb is a list
-of one or more files, which are each composed of at least one chunk.
-Ergo, the following [[<<high-level Noweb tool syntax structure>>]] is
-defined.
+As stated, the \texttt{noweb} rule defines the root expression---or starting
+expression---for the grammar. The tool syntax of Noweb is a list of one or more
+files, which are each composed of at least one chunk. Ergo, the following
+\texttt{<<high-level Noweb tool syntax structure>>} is defined.
 
 <<high-level Noweb tool syntax structure>>=
 ;;; Overall marked-up Noweb structure without header and trailer
@@ -310,17 +342,17 @@ defined.
   (bob) (not header) (+ file) (not trailer) (eob))
 @
 
-It is, more or less, an error for noweb filters if the header or trailer keywords
-appear in the text being parsed. These filters are irrelevant to any earlier
-filter, and only matter for the final back-ends (\TeX{}, \LaTeX{}, or HTML) that
-produce human-readable documenation. Normally a filter should ignore anything
-that it doesn't manipulate, but here I decided to fail-safe and make it an
-error. The grammar is designed with the [[--delay]] option in mind.
+It is an error, more or less so, for noweb filters if the header or trailer
+keywords appear in the text being parsed. These filters are irrelevant to any
+earlier filter, and only matter for the final back-ends (\TeX{}, \LaTeX{}, or
+HTML) that produce human-readable documenation. Normally a filter should ignore
+anything that it doesn't manipulate, but here I decided to fail-safe and make it
+an error. The grammar is designed with the \texttt{--delay} option in mind.
 
 The grammar needs to address the fact that the syntax of the Noweb tool
 format is highly line-oriented, given the influence of AWK on the design
 and usage of Noweb (a historical version was entirely implemented in
-AWK). The following [[<<meta rules>>]] define rules which organize the
+AWK). The following \texttt{<<meta rules>>} define rules which organize the
 constructs of a line-oriented, or data-oriented, syntax.
 
 <<meta rules>>=
@@ -333,15 +365,17 @@ constructs of a line-oriented, or data-oriented, syntax.
   " ")
 @
 
-With the [[<<meta rules>>]] enabling easier definitions of what a given
-``keyword'' looks like, the /concept of a file/ can be defined. A file
-is ``anything that looks like a file to Noweb'';
+With the \texttt{<<meta rules>>} enabling easier definitions of what a given
+``keyword'' looks like, the \textit{concept of a file} can be defined. A file is
+``anything that looks like a file to Noweb'';
 %% TODO: verify the functionality of:
 %% -Rone.el -Rtwo.el -Rthree.el#, or that of
 %% -Rone.el,two.el,three.el,four,five.h,six.c#
 files may be tangled from the noweb sources by specifying their root
 chunk names on the command-line. However, by default, only the chunk
-named ``*'' (it's chunk header is [[@<<*>>]]) is tangled when no
+named ``*''
+(it's chunk header is \texttt{@<<*>>})%@<<: prohibit Noweb inserting a @use here
+is tangled when no
 specific root chunk is given on the command line.
 
 TODO: Write about the need for the overall document to be separate from
@@ -392,9 +426,9 @@ complex library in an area of programming I have not practiced in before
 
 Because chunks must not overlap, but can nest, the beginnings of chunks
 need to be pushed to the parsing stack and the end of a chunk needs to
-be popped off of it. The stack pushing operations in [[kind]] and
-[[ordinal]] delimit chunks by their kinds and number, and the stack
-actions in the [[end]] rule check that the chunk-related tokens on the
+be popped off of it. The stack pushing operations in \texttt{kind} and
+\texttt{ordinal} delimit chunks by their kinds and number, and the stack
+actions in the \texttt{end} rule check that the chunk-related tokens on the
 stack are balanced.
 
 <<chunks and their boundaries>>=
@@ -430,7 +464,7 @@ stack are balanced.
   (substring (or "code" "docs")))
 @
 
-Valid [[chunk-contents]] is somewhat confusing, because chunks
+Valid \texttt{chunk-contents} is somewhat confusing, because chunks
 can contain many types of information other than text and new
 lines. The definition of what is valid follows.
 
@@ -513,10 +547,10 @@ x-ref
 
 Sometimes, however, the system will permit a chunk to be undefined and
 this leads to the only cases in the tool syntax where it is not
-line-oriented. [[noidx]] will read the cross references to other chunks
-and will be unable to generate the label, so it will insert [[@notdef]]
+line-oriented. \texttt{noidx} will read the cross references to other chunks
+and will be unable to generate the label, so it will insert \texttt{@notdef}
 where it would otherwise upcase ``nw'' and then insert the label. This
-is why [[x-undefined]] is placed among the other [[<<tool errors>>]]
+is why \texttt{x-undefined} is placed among the other \texttt{<<tool errors>>}
 keywords.
 
 <<tool errors>>=
@@ -529,11 +563,13 @@ The fundamental keywords are ``text'' and ``nwnl'' (new line, per Noweb
 convention). Text keywords contain source text, and any new line tokens
 in the source text are replaced with the appropriate number of @nl
 keywords (per convention); these are reduced to a single text token when
-they are adjacent on the [[peg--stack]].
+they are adjacent on the \texttt{peg--stack}.
 
 <<chunks and their boundaries>>=
 (define-peg-rule text ()
   (bol) "@text" spc (substring (* (and (not "\n") (any)))) nl
+  ;; MAYBE FIXME: the concatenation is embedded directly in the rule. I don't
+  ;; remember integrating this, but if it works keep it!
   `(txt -- (peg-noweb-concatenate-text-tokens (cons 'text txt))))
 (define-peg-rule nwnl ()
   (bol) (substring "@nl") nl (action (setf w--file-current-line
@@ -561,13 +597,14 @@ references to) a chunk are important keywords.
            (error "UH-OH! There's a syntax error in the tool output!"))))
 @
 
-\begin{quotation}
-Documentation may contain text and newlines, represented by @text and
-[@nwnl]. It may also contain quoted code bracketed by @quote . . .
-@endquote. Every @quote must be terminated by an @endquote within the
-same chunk. Quoted code corresponds to the [[…]] construct in
-the noweb source.
-\end{quotation}
+\begin{pquotation}{Norman Ramsey, 1992}
+  Depending on its kind, a chunk may contain documentation or code.
+  Documentation may contain text and newlines, represented by \texttt{@text} and
+  \texttt{@nl}. It may also contain quoted code bracketed by
+  \texttt{@quote...@endquote}. Every \texttt{@quote} must be terminated by an
+  \texttt{@endquote} within the same chunk. Quoted code cor- responds to the
+  construct in the noweb source.
+\end{pquotation}
 
 <<quotations>>=
 (define-peg-rule quotation ()
@@ -594,9 +631,8 @@ or on-line version of the literate document quite nicely. These
 functionalities each begin with a rule which matches only part of a line
 of the tool syntax since there are many indexing and cross-referencing
 keywords. The common part of each line is a rule which merely matches
-the [[@index]] or [[@xref]] keyword. The rest of the lines are handled
-by a list of rules in [[index-keyword]] or [[xref-keyword]].
-
+the \texttt{@index} or \texttt{@xref} keyword. The rest of the lines are handled
+by a list of rules in \texttt{index-keyword} or \texttt{xref-keyword}.
 
 The \textit{Noweb Hacker's Guide} lists these two lines in the ``Tagging
 keywords'' table, indicating that it's unlikely (or forbidden) that the
@@ -636,7 +672,7 @@ Cross--referencing keywords, so they are contained in subsections.
 \subsection{indexing}
 Indexing keywords, both those used within chunks and those used outside
 of chunks, are defined in this section. The
-[[<<fundamental indexing keywords, which are restricted to within a code chunk>>]],
+\texttt{<<fundamental indexing keywords, which are restricted to within a code chunk>>},
 index definitions or usages of identifiers and track the definitions of
 identifiers in a chunk and the usages of identifiers in a chunk. They
 may seem redundant, but are not; the Noweb Hacker's Guide offers a
@@ -711,7 +747,7 @@ those recognized by the autodefinitions filter).
 The following chunk's name is documentation enough for the purposes of
 \whyse{}. See the Noweb Hacker's Guide for more information.
 
-[[@index nl]] was deprecated in Noweb 2.10, and [[@index localdefn]] is
+\texttt{@index nl} was deprecated in Noweb 2.10, and \texttt{@index localdefn} is
 not widely used (assumedly) nor well-documented, so it is unsupported by
 \whyse{} (contributions for improved support are welcomed).
 
@@ -885,7 +921,7 @@ the reduction in complexity exampled above is achieved.
 
 \subsection{Reducing complexity in the alist}
 The first step in making the parse tree navigable for other programs is
-collapsing adjacent ``stringy'' tokens into single [[text]] tokens. The
+collapsing adjacent ``stringy'' tokens into single \texttt{text} tokens. The
 output tool syntax of notangle, and the parse tree resulting from the
 PEG, (breifly) contain individual text tokens for fragments of whole
 text lines and form feed characters. These tokens exist because the
@@ -906,7 +942,7 @@ tokens.
 (nwnl . "@nl")
 \end{verbatim}
 
-To collapse these tokens into a single text token the [[peg--stack]]
+To collapse these tokens into a single text token the \texttt{peg--stack}
 must be manipulated carefully. It isn't advisable to manipulate this
 variable in the course of a PEG grammar's actions. There is a use case
 for it when the previous rules and actions won't accommodate the
@@ -915,11 +951,11 @@ this development version that is not a goal; basic functionality is
 sought after, not robustness or beauty, so hacking the desired behaviour
 together quickly is better.
 
-[[peg-noweb-nth-chunk-of-nth-noweb-document]] retrieves the parse tree for the nth
-noweb document, which in the case of [[whyse.nw]] is the parse tree of
+\texttt{peg-noweb-nth-chunk-of-nth-noweb-document} retrieves the parse tree for the nth
+noweb document, which in the case of \texttt{whyse.nw} is the parse tree of
 the zeroth-indexed document. It's quite a simple function. To obtain a
 given chunk of this document from the parse tree the result of the
-function is called with [[nth]] and the index of the chunk.
+function is called with \texttt{nth} and the index of the chunk.
 
 <<code>>=
 <<functions for navigating noweb tool syntax parse trees>>
