@@ -73,6 +73,8 @@
 ;; no-byte-compile: t
 ;; no-native-compile: t
 ;; End:
+
+;;; peg-noweb.el ends here
 @
 
 \subsection{Licensing and Copyright}
@@ -105,6 +107,9 @@ facilities, otherwise it would be difficult to program any application with only
 the ruleset. In pursuit of that, I'll endure the difficulty and any advances I
 make will become part of the public interface before I take suggestions.
 
+\subsection{Research on Designing APIs}
+\label{sec:research}
+
 Before I suffer well through discovering a useful interface to a PEG ruleset and
 the result of parsing a text which matches the root rule \texttt{noweb} in that
 set, I will conduct some research to see ``what interfaces to PEG grammars are
@@ -134,12 +139,16 @@ must be supplied to the function \texttt{with-peg-rules}.
 Whatever happens in BODY that I like to do during development is likely
 something that should be packaged.
 
-Adapted from \texttt{lm-with-file} from \texttt{lisp-mnt.el}, I provide
-\texttt{peg-noweb-with-file}. The file argument is the file which will be passed
-to \texttt{nomarkup}, and the output is captured by Emacs.
+\textbf{Conclusion}: there's not really any ``guides to packaging PEX parsers'';
+there's plenty of libraries and packages that provide for PEG parser generating
+from formal grammars, but examples of formal grammars packaged with APIs for the
+parser generated from that grammar are cryptic and I haven't found any.
 
-To utilize \textit{nomarkup}, the customization variable
-\texttt{peg-noweb-filter-path} must be set, otherwise the default value will
+\subsection{Customization}
+\label{sec:customization}
+
+To utilize \textit{markup}, the customization variable
+\texttt{peg-noweb-filter-directory} must be set, otherwise the default value will
 come from parsing the standard error of \texttt{noweave -v}, a cental command
 distributed in Noweb which must be on the user's PATH.
 
@@ -148,12 +157,37 @@ distributed in Noweb which must be on the user's PATH.
   "Customization Variables affecting PEG Noweb, the peg package extension library providing a ruleset for the Noweb tool syntax.")
 
 (defcustom peg-noweb-filter-directory
-  (and (= 0 (shell-command "which noweave"))
-       (with-temp-buffer (shell-command "noweave -v -n" (get-buffer (current-buffer)))
-                         (file-name-directory (buffer-substring (goto-line 3) (- (point-at-eol) 2)))))
+  (file-name-concat (and (= 0 (shell-command "which noweave"))
+                         (with-temp-buffer (shell-command "noweave -v -n" (get-buffer (current-buffer)))
+                                           (file-name-directory (buffer-substring (goto-line 3) (- (point-at-eol) 2)))))
+                    "lib")
   "The directory containing Noweb filters, which also contains the executable `markup' in particular."
   :group 'peg-noweb)
+@
 
+It's immediately useful to have a function to markup noweb files to produce the
+all-important tool format.
+
+<<code>>=
+(defun peg-noweb-filter-markup (infile &optional outfile)
+  "Filter INFILE through markup to create OUTFILE.
+
+By default, OUTFILE has the same name as INFILE with the `mu' extenion instead of `nw'."
+  (let ((outfile (unless outfile
+                   (concat (file-name-sans-extension infile) ".mu"))))
+    (call-process (file-name-concat peg-noweb-filter-directory "markup")
+                  infile outfile)
+    outfile))
+@
+
+\subsection{Macros}
+\label{sec:macros}
+
+Adapted from \texttt{lm-with-file} from \texttt{lisp-mnt.el}, I provide
+\texttt{peg-noweb-with-file}. The file argument is the file which will be passed
+to \texttt{nomarkup}, and the output is captured by Emacs.
+
+<<code>>=
 ;; FIXME: the current parse tree contains a `nil' after the chunk type
 ;; and number assoc, and that needs to be analyzed. Why is this `nil' in
 ;; the stack? I assume and believe it is because of the collapsing of
@@ -177,6 +211,7 @@ parsing."
           (parse-tree `(let ((,filesym ,file))
                          (when ,filesym
 	                         (with-temp-buffer
+                             ;; TODO: replace this with `peg-noweb-filter-markup'.
 	                           (insert-file-contents ,filesym)
                              (call-process (expand-file-name "markup" peg-noweb-filter-directory))
 	                           (emacs-lisp-mode)
@@ -191,6 +226,16 @@ parsing."
                                    (peg-run (peg noweb) #'peg-noweb--parse-failure)))))))))
       (when peg-noweb--parse-success
         ,@body))))
+
+(defun peg-noweb-parse-file (file)
+  "Parse FILE in a temporary buffer after calling `markup' on the file."
+  (with-temp-buffer
+    (insert-file-contents (peg-noweb-filter-markup file))
+    (goto-char (point-min))
+    (with-peg-rules (peg-noweb-ruleset)
+                    (let (peg-noweb--parser-within-codep; nil
+                          (peg-noweb--first-stringy-token? t))
+                      (peg-run (peg noweb) #'peg-noweb--parse-failure)))))
 
 (defun peg-noweb--parse-failure (lst)
   "This lambda was historically named `w--parse-failure-function'."
@@ -225,12 +270,12 @@ parsing."
   %% (eol); to match the end of line, and permit parsing the next line of input,
   %% include the string literal "\n".
   The root rule in the grammar for Noweb tool syntax is named \texttt{noweb}, so
-  with \texttt{<<PEG rules>>} in scope a match using the root rule
+  with \texttt{@<<PEG rules>>} in scope a match using the root rule
   \texttt{noweb} is attempted against the current buffer. The current buffer
   must contain the tool syntax produced by \texttt{noweave} and passed to any
   one of the default or additional filters specified on the command line.
 
-  To further the development of \whyse{}, packaging \texttt{<<PEG rules>>} as an
+  To further the development of \whyse{}, packaging \texttt{@<<PEG rules>>} as an
   independent peg package extension allows me to forget about this subproject
   while I focus on Ref\TeX{} and AUC\TeX{} as foundational layers for
   implementing \whyse{}.
@@ -334,7 +379,7 @@ grammar it defines are given in other sections.
 As stated, the \texttt{noweb} rule defines the root expression---or starting
 expression---for the grammar. The tool syntax of Noweb is a list of one or more
 files, which are each composed of at least one chunk. Ergo, the following
-\texttt{<<high-level Noweb tool syntax structure>>} is defined.
+\texttt{@<<high-level Noweb tool syntax structure>>} is defined.
 
 <<high-level Noweb tool syntax structure>>=
 ;;; Overall marked-up Noweb structure without header and trailer
@@ -352,7 +397,7 @@ an error. The grammar is designed with the \texttt{--delay} option in mind.
 The grammar needs to address the fact that the syntax of the Noweb tool
 format is highly line-oriented, given the influence of AWK on the design
 and usage of Noweb (a historical version was entirely implemented in
-AWK). The following \texttt{<<meta rules>>} define rules which organize the
+AWK). The following \texttt{@<<meta rules>>} define rules which organize the
 constructs of a line-oriented, or data-oriented, syntax.
 
 <<meta rules>>=
@@ -365,7 +410,7 @@ constructs of a line-oriented, or data-oriented, syntax.
   " ")
 @
 
-With the \texttt{<<meta rules>>} enabling easier definitions of what a given
+With the \texttt{@<<meta rules>>} enabling easier definitions of what a given
 ``keyword'' looks like, the \textit{concept of a file} can be defined. A file is
 ``anything that looks like a file to Noweb'';
 %% TODO: verify the functionality of:
@@ -404,18 +449,26 @@ after the last file.
         (opt chunk)
         (opt (+ nl)))
   `(path chunk-list -- (cons path chunk-list)))
+
 (define-peg-rule path ()
-  (opt (or ".." ".")) (* path-component) file-name)
-(define-peg-rule path-component ()
-  (and path-separator (+ [word])))
-;; Perhaps I should instead `regexp-quote' the result of
-;; `f-path-separator' rather than hard-code the UNIX-like path
-;; separator. Doesn't Windows support automatic translation of UNIX-like
-;; paths to Windows-paths on the current drive now?
-(define-peg-rule path-separator ()
-  ["\\/"])
+  (* path-component)
+  file-name)
+
 (define-peg-rule file-name ()
-  (+ (or [word] ".")))
+  ;; NOTE: while POSIX filenames themselves can theoretically include new-lines,
+  ;; noweb syntax does not allow this.
+  (+ (not (or ["\x00"] "/" (eol))) (any)))
+
+;; A path may include a relative specifier, or a directory specifier, but will
+;; always include a slash to indicate one or more directory components. `/' is
+;; the unnamed root directory, `/root-subdirectory', `../root-subdirectory'
+;; would be `/', etc.
+(define-peg-rule path-component ()
+  ;; Perhaps I should instead `regexp-quote' the result of
+  ;; `f-path-separator' rather than hard-code the UNIX-like path
+  ;; separator. Doesn't Windows support automatic translation of UNIX-like
+  ;; paths to Windows-paths on the current drive now?
+  (opt (or ".." ".")) "/" (opt file-name))
 @
 
 NOTE: Writing PEXes for matching file names was the most difficult part
@@ -550,7 +603,7 @@ this leads to the only cases in the tool syntax where it is not
 line-oriented. \texttt{noidx} will read the cross references to other chunks
 and will be unable to generate the label, so it will insert \texttt{@notdef}
 where it would otherwise upcase ``nw'' and then insert the label. This
-is why \texttt{x-undefined} is placed among the other \texttt{<<tool errors>>}
+is why \texttt{x-undefined} is placed among the other \texttt{@<<tool errors>>}
 keywords.
 
 <<tool errors>>=
@@ -669,10 +722,10 @@ grouping.
 Further keywords are categorized neatly as Indexing or
 Cross--referencing keywords, so they are contained in subsections.
 
-\subsection{indexing}
+\subsection{Indexing}
 Indexing keywords, both those used within chunks and those used outside
 of chunks, are defined in this section. The
-\texttt{<<fundamental indexing keywords, which are restricted to within a code chunk>>},
+\texttt{@<<fundamental indexing keywords, which are restricted to within a code chunk>>},
 index definitions or usages of identifiers and track the definitions of
 identifiers in a chunk and the usages of identifiers in a chunk. They
 may seem redundant, but are not; the Noweb Hacker's Guide offers a
@@ -762,7 +815,7 @@ not widely used (assumedly) nor well-documented, so it is unsupported by
   (action (error <<index nl error message>>)))
 @
 
-\subsection{cross referencing}
+\subsection{Cross referencing}
 <<cross-referencing keywords>>=
 (define-peg-rule x-label ()
   xr (substring "label" spc label) nl
