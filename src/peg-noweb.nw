@@ -1,4 +1,4 @@
-\documentclass{article}
+\documentctass{article}
 
 \usepackage{hyperref}
 \usepackage{quoting,xparse}
@@ -131,10 +131,10 @@ but researching odd topics in computer science can be difficult.
 There should some input and output functionality at least: a text in a buffer
 must be supplied to the function \texttt{with-peg-rules}.
 
-\begin{verbatim}
+<<example-0>>=
 (with-peg-rules (peg-noweb-ruleset)
   BODY)
-\end{verbatim}
+@ 
 
 Whatever happens in BODY that I like to do during development is likely
 something that should be packaged.
@@ -173,10 +173,10 @@ all-important tool format.
   "Filter INFILE through markup to create OUTFILE.
 
 By default, OUTFILE has the same name as INFILE with the `mu' extenion instead of `nw'."
-  (let ((outfile (unless outfile
+  (let ((outfile (if outfile outfile
                    (concat (file-name-sans-extension infile) ".mu"))))
     (call-process (file-name-concat peg-noweb-filter-directory "markup")
-                  infile outfile)
+                  nil `(:file ,outfile) nil infile)
     outfile))
 @
 
@@ -230,12 +230,17 @@ parsing."
 (defun peg-noweb-parse-file (file)
   "Parse FILE in a temporary buffer after calling `markup' on the file."
   (with-temp-buffer
-    (insert-file-contents (peg-noweb-filter-markup file))
+    (let* ((ext (file-name-extension file))
+          (f (if (string= ext "nw")
+                 (peg-noweb-filter-markup file)
+               (and (string= ext "mu") file))))
+      (insert-file-contents
+       (if f f (error "FILE was neither a noweb file nor a markup file (.nw and .mu, respectively)."))))
     (goto-char (point-min))
     (with-peg-rules (peg-noweb-ruleset)
-                    (let (peg-noweb--parser-within-codep; nil
-                          (peg-noweb--first-stringy-token? t))
-                      (peg-run (peg noweb) #'peg-noweb--parse-failure)))))
+      (let (peg-noweb--parser-within-codep; nil
+            (peg-noweb--first-stringy-token? t))
+        (peg-run (peg noweb) #'peg-noweb--parse-failure)))))
 
 (defun peg-noweb--parse-failure (lst)
   "This lambda was historically named `w--parse-failure-function'."
@@ -468,7 +473,11 @@ after the last file.
   ;; `f-path-separator' rather than hard-code the UNIX-like path
   ;; separator. Doesn't Windows support automatic translation of UNIX-like
   ;; paths to Windows-paths on the current drive now?
-  (opt (or ".." ".")) "/" (opt file-name))
+  (opt (or ".." ".")) "/"
+  (opt file-name)
+  ;; MAYBE `(not "/")' to ban //?
+  ;; (not "/")
+  )
 @
 
 NOTE: Writing PEXes for matching file names was the most difficult part
@@ -938,7 +947,7 @@ thanks to literate programming should be easy for advanced users.
 
 The initial parse tree begins like the one below.
 
-\begin{verbatim}
+<<example-1>>=
 '((noweb-document-one
    ((docs . 0)
     (text . "\tex{} is cool!"))
@@ -955,16 +964,15 @@ The initial parse tree begins like the one below.
     (text . "\LaTeX{} is great!"))
    ((docs . 3)
     (text . "Noweb, written by Norman Ramsey is sweet!"))))
-\end{verbatim}
+@ 
 
 The reductions which occur during parsing make chunk zero of the second
 noweb document look like this in the final result.
 
-\begin{verbatim}
+<<example-2>>=
 ((code . 0)
- (text . "asdf is a system definition format in Common LISP,
-and I like to use it."))
-\end{verbatim}
+ (text . "asdf is a system definition format in Common LISP, and I like to use it."))
+@ 
 
 The new result is much easier to use as data for other programs (SQL in
 this case). In the verbatim text a literal newline was inserted rather
@@ -986,14 +994,14 @@ shown in this example in its parsed form. However, during actual parsing
 these adjacent tokens are \textit{immediately collapsed} into singular
 tokens.
 
-\begin{verbatim}
+<<example-3>>=
 (text . "  and \textsc{Noweb}'s \texttt{finduses.nw}!")
 (nwnl . "@nl")
 (text . "\end{enumerate}")
 (nwnl . "@nl")
 (text . "")
 (nwnl . "@nl")
-\end{verbatim}
+@ 
 
 To collapse these tokens into a single text token the \texttt{peg--stack}
 must be manipulated carefully. It isn't advisable to manipulate this
@@ -1090,6 +1098,41 @@ If the two associations shouldn't be joined, return them to the stack."
         new-token)
     (when peg-noweb--first-stringy-token? (setq peg-noweb--first-stringy-token? nil))))
 @
+
+\section{Emacs LISP definitions}
+\label{sec:emacs-lisp-definitions}
+
+The built-in package \texttt{PEG} greatly simplifies the source code of this
+package: rather than relying on an autodefs.elisp file written in AWK we can use
+PEG parsing to manage Emacs LISP definitions when we see them. The following
+PEXs are based off the AWK code written by Joseph S. Riel.
+
+<<autodefs.elisp>>=
+;; Derived from AWK code released under the GNU GPL v2 license by Joseph S. Riel;
+;; that code is Copyright (c) 2005-2015 by Joseph S. Riel.  All rights reserved.
+(whitespace (+ (or " " "\t")))
+(identifier; FIXME: the `action' is not valid; it must insert the matched text into the stream as below.
+ (substring (+ (not (or " " "\t" "\n" "()"))))
+ (action (insert (string-join `("@index" "defn" peg--stack)) )))
+(def-x (or "defun"
+           "defvar"
+           "defconst"
+           "defgroup"
+           "defalias"
+           "defsubst"
+           "defmacro"
+           "defcustom"
+           "defadvice"
+           "defimage"))
+(define-x (or "define-minor-mode"
+              "define-derived-mode"
+              "define-abbrev"
+              "define-category"
+              "define-prefix-command"
+              "define-key-after"))
+(definitions (bol) "@text" whitespace (or def-x define-x) whitespace identifier (eol) "\n")
+@ 
+
 
 \end{document}
 
