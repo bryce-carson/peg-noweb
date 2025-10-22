@@ -102,10 +102,18 @@ any relevant third-party copyright notices.
 \section{Public Interface}
 \label{sec:pkg-interface}
 
-The public interface of the package should include some basic programming
-facilities, otherwise it would be difficult to program any application with only
-the ruleset. In pursuit of that, I'll endure the difficulty and any advances I
-make will become part of the public interface before I take suggestions.
+This section defines a public interface to the grammar, allowing texts matched
+by the grammar to be navigated and searched using simple functions and
+manipulated in manners common to the texts matched by the grammar.
+
+The public interface of the package should include some basic Emacs LISP
+programming facilities, otherwise it would be difficult to program any
+application with only the interface to the ruleset; users shouldn't need to be
+familiar with the peg package itself or parsing to utilize this interface. In
+pursuit of such a public interface I'll endure the difficulty of discovering
+the frictious parts of the grammar myself. Dogfood! Any advances I make will become
+part of the public interface before I take suggestions when making the first
+published version of the package.
 
 \subsection{Research on Designing APIs}
 \label{sec:research}
@@ -157,10 +165,9 @@ distributed in Noweb which must be on the user's PATH.
   "Customization Variables affecting PEG Noweb, the peg package extension library providing a ruleset for the Noweb tool syntax.")
 
 (defcustom peg-noweb-filter-directory
-  (file-name-concat (and (= 0 (shell-command "which noweave"))
-                         (with-temp-buffer (shell-command "noweave -v -n" (get-buffer (current-buffer)))
-                                           (file-name-directory (buffer-substring (goto-line 3) (- (point-at-eol) 2)))))
-                    "lib")
+  (and (= 0 (shell-command "which noweave"))
+       (with-temp-buffer (shell-command "noweave -v -n" (get-buffer (current-buffer)))
+                         (file-name-directory (buffer-substring (goto-line 3) (- (point-at-eol) 2)))))
   "The directory containing Noweb filters, which also contains the executable `markup' in particular."
   :group 'peg-noweb)
 @
@@ -229,21 +236,21 @@ parsing."
 
 (defun peg-noweb-parse-file (file)
   "Parse FILE in a temporary buffer after calling `markup' on the file."
-  (with-temp-buffer
+  (with-current-buffer
+      (get-buffer-create (string-join `("*peg-noweb-parse-file*" ,file) " "))
     (let* ((ext (file-name-extension file))
-          (f (if (string= ext "nw")
-                 (peg-noweb-filter-markup file)
-               (and (string= ext "mu") file))))
+           (f (if (string= ext "nw"); create and/or return mu file
+                  (peg-noweb-filter-markup file)
+                (and (string= ext "mu") file))))
       (insert-file-contents
        (if f f (error "FILE was neither a noweb file nor a markup file (.nw and .mu, respectively)."))))
-    (goto-char (point-min))
+    (goto-char (point-min)); FIXME: `insert-file-contents' says it inserts the contents AFTER point, so I shouldn't need to move point.
     (with-peg-rules (peg-noweb-ruleset)
       (let (peg-noweb--parser-within-codep; nil
             (peg-noweb--first-stringy-token? t))
         (peg-run (peg noweb) #'peg-noweb--parse-failure)))))
 
 (defun peg-noweb--parse-failure (lst)
-  "This lambda was historically named `w--parse-failure-function'."
   (setq peg-noweb--parse-success nil)
   (pop-to-buffer (clone-buffer))
   (save-excursion
@@ -428,24 +435,22 @@ named ``*''
 is tangled when no
 specific root chunk is given on the command line.
 
-TODO: Write about the need for the overall document to be separate from
-the one-or-more files specified in the document. Exempli gratia: the
-current document, contained in \whysenw{} contains two files,
-though they are separately tangled: \whyseel{} and
-\texttt{test-parser-with-temporary-buffer.el}. If these two files were
-tangled at the same time, such that the output file discovery ability of
-Noweb was used, then there would be more than one file in the
-intermediate tool syntax, but still a single preceeding documentation
-chunk before the first file, and a single succeeding documentation chunk
-after the last file.
+TODO: Write about the need for the overall document to be separate from the
+one-or-more files specified in the document. Exempli gratia: the current
+document, contained in \texttt{peg-noweb.nw} contains more than one file, these
+separately tangled. If these two files were tangled at the same time, such that
+the output file discovery ability of Noweb was used, then there would be more
+than one file in the intermediate tool syntax, but still a single preceeding
+documentation chunk before the first file, and a single succeeding documentation
+chunk after the last file.
 
 <<files and their paths>>=
 ;; Technically, file is a tagging keyword, but that classification only
 ;; makes sense in the Hacker's Guide to Noweb, not in the parser for the
 ;; tool syntax.
 (define-peg-rule file ()
-  (bol) "@file" spc (substring path) nl
-  (action (setq w--file-current-line 0))
+  (bol) "@file" spc (substring path) nl; the file tagging keyword ends here
+  (action (setq peg-noweb--file-current-line 0))
   (list (and (+ chunk)
              (list (or (and x-chunks i-identifiers)
                        (and i-identifiers x-chunks))))
@@ -456,12 +461,12 @@ after the last file.
   `(path chunk-list -- (cons path chunk-list)))
 
 (define-peg-rule path ()
-  (* path-component)
-  file-name)
+  (* path-component) file-name)
 
-(define-peg-rule file-name ()
+;; TODO: to resolve the fixme below, I should ask on the Emacs LISP mailing list.
+(define-peg-rule file-name (); FIXME: the result of `file-name' is `t', and this results in a no merge-error method for (guard t).
   ;; NOTE: while POSIX filenames themselves can theoretically include new-lines,
-  ;; noweb syntax does not allow this.
+  ;; noweb syntax does not allow this #.
   (+ (not (or ["\x00"] "/" (eol))) (any)))
 
 ;; A path may include a relative specifier, or a directory specifier, but will
@@ -634,8 +639,8 @@ they are adjacent on the \texttt{peg--stack}.
   ;; remember integrating this, but if it works keep it!
   `(txt -- (peg-noweb-concatenate-text-tokens (cons 'text txt))))
 (define-peg-rule nwnl ()
-  (bol) (substring "@nl") nl (action (setf w--file-current-line
-                                           (1+ w--file-current-line)))
+  (bol) (substring "@nl") nl (action (setf peg-noweb--file-current-line
+                                           (1+ peg-noweb--file-current-line)))
   ;; Be sure that when thinking about the symbol `nl' here that
   ;; you're not confusing it with the peg rule nl.
   `(nl -- (peg-noweb-concatenate-text-tokens (cons 'nl "\n"))))

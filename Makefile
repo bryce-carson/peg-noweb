@@ -11,11 +11,6 @@ finduses ?= ${NOWEB_LIB}/finduses
 noidx ?= ${NOWEB_LIB}/noidx
 autodefs_elisp ?= ${NOWEB_LIB}/autodefs.elisp
 
-# TODO: create a TODO.org file (once I learn how they work) and create a README
-# for the project within that.
-# readme:
-# 	emacs --batch --eval "(require 'org)" --eval '(org-babel-tangle-file "TODO.org")'
-
 clean:
 	$(RM) --recursive --force $(BUILD)
 
@@ -28,10 +23,9 @@ tangle: clean
 	tar --create --file $(BUILD)/peg-noweb-$(VERSION).tar -C $(BUILD) peg-noweb-$(VERSION)
 	tar --list --file $(BUILD)/peg-noweb-$(VERSION).tar
 
-# TODO: write some tests. Use a testing framework?
-# test: clean tangle
-# 	mkdir -p $(TEST)
-# 	notangle -Rexample-test-name.el $(SRC)/peg-noweb.nw > $(TEST)/example-test-name.el
+## TODO: makem.sh is suposed to be easier than what I'm doing... read the documentation carefully!
+test-interactive: tangle
+	emacs --quick --eval="(and (load-library \"peg\") (load \"$(BUILD)/peg-noweb-0.1/peg-noweb.el\") (peg-noweb-parse-file \"$(SRC)/peg-noweb.nw\"))"
 
 weave:
 	mkdir -p $(BUILD)
