@@ -1,4 +1,4 @@
-\documentctass{article}
+\documentclass{article}
 
 \usepackage{hyperref}
 \usepackage{quoting,xparse}
@@ -324,7 +324,7 @@ grammar it defines are given in other sections.
 
     file
     path
-    path-component
+    directory
     path-separator
     file-name
 
@@ -415,7 +415,7 @@ constructs of a line-oriented, or data-oriented, syntax.
 <<meta rules>>=
 ;; Helpers
 (define-peg-rule nl ()
-  (eol) "\n")
+  "\n")
 (define-peg-rule !eol ()
   (+ (not "\n") (any)))
 (define-peg-rule spc ()
@@ -442,18 +442,31 @@ separately tangled. If these two files were tangled at the same time, such that
 the output file discovery ability of Noweb was used, then there would be more
 than one file in the intermediate tool syntax, but still a single preceeding
 documentation chunk before the first file, and a single succeeding documentation
-chunk after the last file.
+chunk after the last file. When woven, however, the ``overall document'' will
+include all files and the surrounding text.
+
+\begin{itemize}
+\item multiple noweb files
+\item multiple roots within multiple noweb files
+\item single noweb files
+\item multiple roots within a single noweb file
+\end{itemize}
+
+When \texttt{noweave} is given multiple noweb files there will be multiple
+\texttt{@file} tags in the markup output.
+
+TODO: a paragraph about root chunks within file(s).
 
 <<files and their paths>>=
 ;; Technically, file is a tagging keyword, but that classification only
 ;; makes sense in the Hacker's Guide to Noweb, not in the parser for the
 ;; tool syntax.
 (define-peg-rule file ()
-  (bol) "@file" spc (substring path) nl; the file tagging keyword ends here
+  (bol) "@file" spc (substring path) (eol) "\n"; the file tagging keyword ends here
   (action (setq peg-noweb--file-current-line 0))
   (list (and (+ chunk)
-             (list (or (and x-chunks i-identifiers)
-                       (and i-identifiers x-chunks))))
+             (list (opt (or (and x-chunks i-identifiers)
+                            (and i-identifiers x-chunks)))))
         ;; Trailing documentation chunk and new-lines after the xref
         ;; and index.
         (opt chunk)
@@ -461,28 +474,27 @@ chunk after the last file.
   `(path chunk-list -- (cons path chunk-list)))
 
 (define-peg-rule path ()
-  (* path-component) file-name)
+  (* directory) (opt "/") file-name)
 
-;; TODO: to resolve the fixme below, I should ask on the Emacs LISP mailing list.
-(define-peg-rule file-name (); FIXME: the result of `file-name' is `t', and this results in a no merge-error method for (guard t).
+(define-peg-rule file-name ()
   ;; NOTE: while POSIX filenames themselves can theoretically include new-lines,
-  ;; noweb syntax does not allow this #.
-  (+ (not (or ["\x00"] "/" (eol))) (any)))
+  ;; noweb syntax does not allow this.
+  (+ (and (not ["\x00" "/" "\n"]) (any))))
 
-;; A path may include a relative specifier, or a directory specifier, but will
-;; always include a slash to indicate one or more directory components. `/' is
-;; the unnamed root directory, `/root-subdirectory', `../root-subdirectory'
-;; would be `/', etc.
-(define-peg-rule path-component ()
+;; A directory may include a relative specifier, or a directory specifier,
+;; but will always include a slash to indicate one or more directory components.
+;; `/' is the unnamed root directory, `/root-subdirectory',
+;; `../root-subdirectory' would be `/', etc. NOTE: this PEX also matches the
+;; final directory separator!
+(define-peg-rule directory ()
   ;; Perhaps I should instead `regexp-quote' the result of
   ;; `f-path-separator' rather than hard-code the UNIX-like path
   ;; separator. Doesn't Windows support automatic translation of UNIX-like
   ;; paths to Windows-paths on the current drive now?
-  (opt (or ".." ".")) "/"
-  (opt file-name)
-  ;; MAYBE `(not "/")' to ban //?
-  ;; (not "/")
-  )
+  (opt (or ".." "."))
+  "/"
+  (if (not (and file-name "\n")))
+  (opt file-name))
 @
 
 NOTE: Writing PEXes for matching file names was the most difficult part
