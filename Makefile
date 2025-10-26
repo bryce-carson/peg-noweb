@@ -25,7 +25,7 @@ tangle: clean
 
 ## TODO: makem.sh is suposed to be easier than what I'm doing... read the documentation carefully!
 test-interactive: tangle
-	emacs --quick --eval="(when (and (load-library \"peg\") (load \"$(BUILD)/peg-noweb-0.1/peg-noweb.el\")) (peg-noweb-parse-file \"$(SRC)/peg-noweb.nw\") (switch-to-buffer (get-buffer-create \"*peg-noweb-parse-file* $(SRC)/peg-noweb.nw\")))"
+	emacs --quick --eval="(when (and (load-library \"peg\") (load \"$(BUILD)/peg-noweb-0.1/peg-noweb.el\") (find-file \"$(TEST)/test.el\") (eval-buffer)))"
 
 weave:
 	mkdir -p $(BUILD)

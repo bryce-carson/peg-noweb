@@ -64,7 +64,10 @@
 ;; extend Noweb with UNIX tools like AWK or sed.
 
 ;;; Code:
-<<code>>
+<<PEG rules and the Noweb ruleset>>
+<<define customization variables>>
+<<define functions>>
+<<define variables>>
 
 (provide 'peg-noweb)
 
@@ -109,58 +112,27 @@ manipulated in manners common to the texts matched by the grammar.
 The public interface of the package should include some basic Emacs LISP
 programming facilities, otherwise it would be difficult to program any
 application with only the interface to the ruleset; users shouldn't need to be
-familiar with the peg package itself or parsing to utilize this interface. In
-pursuit of such a public interface I'll endure the difficulty of discovering
-the frictious parts of the grammar myself. Dogfood! Any advances I make will become
-part of the public interface before I take suggestions when making the first
-published version of the package.
-
-\subsection{Research on Designing APIs}
-\label{sec:research}
-
-Before I suffer well through discovering a useful interface to a PEG ruleset and
-the result of parsing a text which matches the root rule \texttt{noweb} in that
-set, I will conduct some research to see ``what interfaces to PEG grammars are
-typically provided''.
-% NOTE: Are there many from which I can draw a conclusion about
-% the typical interface? I don't think it's likely.
-
-\begin{list}{}{}
-\item \textit{Raincode Crossbow}'s PEG grammar documentation: https://www.raincode.com/docs/PEGGrammar/UserGuide.html#_raincode_peg_grammar.
-\item Babble (programming language) Parser code commentary: https://github.com/rottytooth/Babble/blob/main/Parser/babble.pegjs.
-\end{list}
-
-In a second glance, \textit{Raincode Crossbow} doesn't provide \textit{a
-  grammar} with an API thereto the product is instead a \textit{parser
-  generator}. The code commentary in the Babble programming language isn't
-documentation for an API wrapping the grammar. I may be in uncharted territory,
-but researching odd topics in computer science can be difficult.
-
-There should some input and output functionality at least: a text in a buffer
-must be supplied to the function \texttt{with-peg-rules}.
+familiar with the peg package itself or parsing to utilize this interface. There
+should some input and output functionality at least: a text in a buffer must be
+supplied to the function \texttt{with-peg-rules}.
 
 <<example-0>>=
 (with-peg-rules (peg-noweb-ruleset)
   BODY)
 @ 
 
-Whatever happens in BODY that I like to do during development is likely
-something that should be packaged.
-
-\textbf{Conclusion}: there's not really any ``guides to packaging PEX parsers'';
-there's plenty of libraries and packages that provide for PEG parser generating
-from formal grammars, but examples of formal grammars packaged with APIs for the
-parser generated from that grammar are cryptic and I haven't found any.
+Whatever happens in BODY that I like to do during development of WHYSE using
+peg-noweb is likely something that should be packaged into peg-noweb.
 
 \subsection{Customization}
 \label{sec:customization}
 
 To utilize \textit{markup}, the customization variable
-\texttt{peg-noweb-filter-directory} must be set, otherwise the default value will
-come from parsing the standard error of \texttt{noweave -v}, a cental command
-distributed in Noweb which must be on the user's PATH.
+\texttt{peg-noweb-filter-directory} must be set, otherwise the default value
+will come from parsing the standard error of \texttt{noweave -v}, a cental
+command distributed in Noweb which must be on the user's PATH.
 
-<<code>>=
+<<define customization variables>>=
 (defgroup peg-noweb ()
   "Customization Variables affecting PEG Noweb, the peg package extension library providing a ruleset for the Noweb tool syntax.")
 
@@ -175,9 +147,9 @@ distributed in Noweb which must be on the user's PATH.
 It's immediately useful to have a function to markup noweb files to produce the
 all-important tool format.
 
-<<code>>=
+<<define functions>>=
 (defun peg-noweb-filter-markup (infile &optional outfile)
-  "Filter INFILE through markup to create OUTFILE.
+  "Filter INFILE through markup to create OUTFILE, returning OUTFILEs path.
 
 By default, OUTFILE has the same name as INFILE with the `mu' extenion instead of `nw'."
   (let ((outfile (if outfile outfile
@@ -187,6 +159,31 @@ By default, OUTFILE has the same name as INFILE with the `mu' extenion instead o
     outfile))
 @
 
+Noweb's key programs take multiple files as arguments, so the functions I define
+which call these programs should likewise support multiple arguments. Therefore
+\texttt{peg-noweb-filter-markup} will be redefined in-place, leaving this
+function unused.
+
+\subsection{Variables}
+\label{sec:variables}
+
+During testing, with the Makefile target ``test-interactive'', I found that the
+PEG parser wasn't happy with the following variables being undefined, despite
+each having exclusively local values during parsing.
+
+<<define variables>>=
+(defvar peg-noweb--file-number-record 0
+  "The current line of the current file being processed by peg-noweb.
+`peg-noweb--file-number-record' emulates \"FNR\" in the AWK programming
+language.")
+(defvar peg-noweb--first-stringy-token? t
+  "Is the current potentially the beginning of a series of \"@text\" tokens?")
+(defvar peg-noweb--parser-within-code-chunk? nil
+  "Whether the peg-noweb parser is currently within a code chunk.")
+(defvar peg-noweb--parse-success t
+  "The success or failure of the last parsing of noweb tool syntax.")
+@ 
+
 \subsection{Macros}
 \label{sec:macros}
 
@@ -194,62 +191,7 @@ Adapted from \texttt{lm-with-file} from \texttt{lisp-mnt.el}, I provide
 \texttt{peg-noweb-with-file}. The file argument is the file which will be passed
 to \texttt{nomarkup}, and the output is captured by Emacs.
 
-<<code>>=
-;; FIXME: the current parse tree contains a `nil' after the chunk type
-;; and number assoc, and that needs to be analyzed. Why is this `nil' in
-;; the stack? I assume and believe it is because of the collapsing of
-;; stringy tokens; when a token should be put back onto the stack it may
-;; also be putting a `nil' onto the stack in the first call to the
-;; function.
-(defmacro peg-noweb-with-file (file &rest body)
-  "Execute BODY in a buffer containing the contents of FILE.
-
-The result is nil when FILE is nil, parsing is unsuccessful, or if
-`peg-noweb-filter-directory' has a computed default value of nil.
-
-This function evaluates BODY after running the \"noweb\" root rule using
-the `peg-noweb-ruleset' ruleset `with-peg-rules', which is the grammar for a
-noweb file marked up for noweb filters. When BODY is evaluated `filesym'
-will be a symbol pointing to FILE and `parse-tree' will be the result of
-parsing."
-  (declare (indent 1) (debug t))
-  (when peg-noweb-filter-directory
-    (let ((filesym (make-symbol "file"))
-          (parse-tree `(let ((,filesym ,file))
-                         (when ,filesym
-	                         (with-temp-buffer
-                             ;; TODO: replace this with `peg-noweb-filter-markup'.
-	                           (insert-file-contents ,filesym)
-                             (call-process (expand-file-name "markup" peg-noweb-filter-directory))
-	                           (emacs-lisp-mode)
-	                           ,@body
-                             (goto-char (point-min))
-                             ;; Switching major modes is too drastic, so just switch
-                             ;; temporarily to the Emacs Lisp mode syntax table.
-                             (with-syntax-table emacs-lisp-mode-syntax-table
-                               (with-peg-rules '(peg-noweb-ruleset)
-                                 (let (peg-noweb--parser-within-codep
-                                       (peg-noweb--first-stringy-token? t))
-                                   (peg-run (peg noweb) #'peg-noweb--parse-failure)))))))))
-      (when peg-noweb--parse-success
-        ,@body))))
-
-(defun peg-noweb-parse-file (file)
-  "Parse FILE in a temporary buffer after calling `markup' on the file."
-  (with-current-buffer
-      (get-buffer-create (string-join `("*peg-noweb-parse-file*" ,file) " "))
-    (let* ((ext (file-name-extension file))
-           (f (if (string= ext "nw"); create and/or return mu file
-                  (peg-noweb-filter-markup file)
-                (and (string= ext "mu") file))))
-      (insert-file-contents
-       (if f f (error "FILE was neither a noweb file nor a markup file (.nw and .mu, respectively)."))))
-    (goto-char (point-min)); FIXME: `insert-file-contents' says it inserts the contents AFTER point, so I shouldn't need to move point.
-    (with-peg-rules (peg-noweb-ruleset)
-      (let (peg-noweb--parser-within-codep; nil
-            (peg-noweb--first-stringy-token? t))
-        (peg-run (peg noweb) #'peg-noweb--parse-failure)))))
-
+<<define functions>>=
 (defun peg-noweb--parse-failure (lst)
   (setq peg-noweb--parse-success nil)
   (pop-to-buffer (clone-buffer))
@@ -263,9 +205,29 @@ parsing."
     (goto-char (point-max))
     (message "PEXes which failed:\n%S" lst)))
 
-(defvar peg-noweb--parse-success t; a global variable
-  "The success or failure of the last parsing of noweb tool syntax.")
+(defun peg-noweb-parse-buffer (buffer)
+  "Parse the buffer, with BUFFER current."
+  (interactive "bbuffer:")
+  (with-current-buffer buffer
+    (goto-char (point-min))
+    (peg-noweb-parse-at-point)))
 
+(defun peg-noweb-parse-at-point ()
+  "Parse the current buffer beginning at point."
+  (with-peg-rules (peg-noweb-ruleset)
+    (let (peg-noweb--parser-within-code-chunk?; nil
+          (peg-noweb--first-stringy-token? t))
+      (peg-run (peg noweb) #'peg-noweb--parse-failure))))
+
+(defun peg-noweb-parse-files (&rest files)
+  "Parse the Noweb files in FILES, calling `markup' on the files."
+  (let ((files (mapcar #'expand-file-name files)))
+    (with-temp-buffer
+      (unless (listp files)
+        (error "FILES is not a list!"))
+      (eval `(call-process (expand-file-name "markup" peg-noweb-filter-directory)
+                           nil t nil ,@files))
+      (peg-noweb-parse-buffer (current-buffer)))))
 @
 
 \section{A grammar of the Noweb tool markup}
@@ -312,7 +274,7 @@ ruleset. A public API for the interacting with texts matched by the
 \texttt{noweb} rule when using the ruleset, and texts which should match the
 grammar it defines are given in other sections.
 
-<<code>>=
+<<PEG rules and the Noweb ruleset>>=
 <<PEG rules>>
 
 (define-peg-ruleset peg-noweb-ruleset
@@ -463,7 +425,7 @@ TODO: a paragraph about root chunks within file(s).
 ;; tool syntax.
 (define-peg-rule file ()
   (bol) "@file" spc (substring path) (eol) "\n"; the file tagging keyword ends here
-  (action (setq peg-noweb--file-current-line 0))
+  (action (setq peg-noweb--file-number-record 0))
   (list (and (+ chunk)
              (list (opt (or (and x-chunks i-identifiers)
                             (and i-identifiers x-chunks)))))
@@ -516,11 +478,11 @@ stack are balanced.
 (define-peg-rule begin ()
   (bol) "@begin" spc kind spc ordinal (eol) nl
   (action (if (string= (cl-second peg--stack) "code")
-              (setq peg-noweb--parser-within-codep t))))
+              (setq peg-noweb--parser-within-code-chunk? t))))
 (define-peg-rule end ()
   (bol) "@end" spc kind spc ordinal (eol) nl
   (action
-   (setq peg-noweb--parser-within-codep nil))
+   (setq peg-noweb--parser-within-code-chunk? nil))
   ;; The stack grows down and the heap grows up,
   ;; that's the yin and yang of the computer thang
   `(kind-one
@@ -530,10 +492,10 @@ stack are balanced.
     ordinal-two
     --
     (if (and (= ordinal-one ordinal-two) (string= kind-one kind-two))
-        (cons (cons (if (string= kind-one "code")
+        (cons (cons ordinal-one
+                    (if (string= kind-one "code")
                         'code
-                      'docs)
-                    ordinal-one)
+                      'docs))
               keywords)
       (error "Chunk nesting error encountered."))))
 (define-peg-rule ordinal ()
@@ -651,8 +613,8 @@ they are adjacent on the \texttt{peg--stack}.
   ;; remember integrating this, but if it works keep it!
   `(txt -- (peg-noweb-concatenate-text-tokens (cons 'text txt))))
 (define-peg-rule nwnl ()
-  (bol) (substring "@nl") nl (action (setf peg-noweb--file-current-line
-                                           (1+ peg-noweb--file-current-line)))
+  (bol) (substring "@nl") nl (action (setf peg-noweb--file-number-record
+                                           (1+ peg-noweb--file-number-record)))
   ;; Be sure that when thinking about the symbol `nl' here that
   ;; you're not confusing it with the peg rule nl.
   `(nl -- (peg-noweb-concatenate-text-tokens (cons 'nl "\n"))))
@@ -663,7 +625,7 @@ references to) a chunk are important keywords.
 
 <<chunks and their boundaries>>=
 (define-peg-rule defn ()
-  "@defn" spc (substring !eol) nl
+  "@defn" spc (substring (opt !eol)) nl
   `(name -- (cons 'chunk name)))
 
 ;; In @<<whyse.el>>=, it leads to usages tokens like below:
@@ -688,7 +650,7 @@ references to) a chunk are important keywords.
 <<quotations>>=
 (define-peg-rule quotation ()
   (bol) "@quote" nl
-  (action (when peg-noweb--parser-within-codep
+  (action (when peg-noweb--parser-within-code-chunk?
             (error "The parser found a quotation within a code chunk. A @fatal should have been found here, but was not.")))
   (substring (+ (and (not "@endquote") (any))))
   (bol) "@endquote" nl
@@ -768,7 +730,7 @@ better explanation of the differences.
   idx
   (substring (or "defn" "use")) spc (substring !eol) nl
   (action
-   (unless peg-noweb--parser-within-codep
+   (unless peg-noweb--parser-within-code-chunk?
      (error "WHYSE parse error: index definition or index usage occurred outside of a code chunk.")))
   `(s1 s2 -- (cons (make-symbol s1) s2)))
 
@@ -946,40 +908,37 @@ contents, which is an association list thereof. Each association in the
 alist is bewteen the symbol relating to the rule that generated the cons
 cell, and the contents appropriate to the symbol.
 
-The first
-step is to ensure the association lists in the parse tree are in a
-format that is acceptable to built-in Emacs Lisp functions; this will
-make it easier to navigate the tree and transform it.
-%% FIXME: is it really true, and does it make sense for
-%% what I'm actually doing, or am I using the concept/name wrong?
-Other texts call this manipulation of the parse tree ``list
-destructuring''.
+The first step is to ensure the association lists in the parse tree are in a
+format that is acceptable to built-in Emacs Lisp functions; this will make it
+easier to navigate the tree and transform it. Other texts call this manipulation
+of the parse tree ``list destructuring'' (see
+\Url{https://www.lispworks.com/documentation/lcl50/loop/loop-47.html}).
 
-%% FIXME 2024-08-10 what the fuck am I saying here?
-Some associations are reductions from the initial parse tree,
+Some associations are reductions from the "initial parse tree",
 which---thanks to the \textsc{peg} package and \textit{PEG parsing in
-  general}---are not reduced in a second step. Modifications to the
-parsing procedure can occur directly without losing information, and
+  general}---are not reduced after parsing but during and so constitute the
+original parse tree as returned by \texttt{peg}. Modifications to the
+parsing procedure overall can occur directly without losing information, and
 thanks to literate programming should be easy for advanced users.
 
-The initial parse tree begins like the one below.
+The "initial parse tree" looks like the one below.
 
 <<example-1>>=
 '((noweb-document-one
-   ((docs . 0)
+   ((0 . docs)
     (text . "\tex{} is cool!"))
-   ((code . 1)
+   ((1 . code)
     (text . "(message \"LISP is awesome!\")")))
   (noweb-document-two
-   ((code . 0)
-    (text . "asdf is a system definition format in Common LISP,"))
-   (nwnl . "\n")
-   (text . "and I like to use it.")
-   ((code . 1)
+   ((0 . docs)
+    (text . "asdf is a system definition format in Common LISP,")
+    (nwnl . "\n")
+    (text . "and I like to use it."))
+   ((1 . code)
     (text . "jkl; is the right-handed corollary of asdf."))
-   ((docs . 2)
+   ((2 . docs)
     (text . "\LaTeX{} is great!"))
-   ((docs . 3)
+   ((3 . docs)
     (text . "Noweb, written by Norman Ramsey is sweet!"))))
 @ 
 
@@ -987,7 +946,7 @@ The reductions which occur during parsing make chunk zero of the second
 noweb document look like this in the final result.
 
 <<example-2>>=
-((code . 0)
+((0 . code)
  (text . "asdf is a system definition format in Common LISP, and I like to use it."))
 @ 
 
@@ -1029,14 +988,33 @@ this development version that is not a goal; basic functionality is
 sought after, not robustness or beauty, so hacking the desired behaviour
 together quickly is better.
 
+TODO: after some testing I have found that the initial form of the parse tree is
+not very useful. It is easier to work with the parse tree when some of the
+information is implicit, such as the chunk type and number. The chunk type can
+be implicitly indicated by using the first element of the association list of a
+chunk as its chunk name or nil; documentation chunks don't have names, but they
+do belong to LaTeX or HTML sections, so that's something to consider for later.
+
+\begin{verbatim}
+((nil "\\documentclass{article}")
+ ("example-3" "print(\"Hi, ESS!\")"))
+\end{verbatim}
+
+\subsection{Retrieving chunks}
+\label{sec:retrieving-chunks}
+
 \texttt{peg-noweb-nth-chunk-of-nth-noweb-document} retrieves the parse tree for the nth
 noweb document, which in the case of \texttt{whyse.nw} is the parse tree of
 the zeroth-indexed document. It's quite a simple function. To obtain a
 given chunk of this document from the parse tree the result of the
 function is called with \texttt{nth} and the index of the chunk.
 
-<<code>>=
+<<define functions>>=
 <<functions for navigating noweb tool syntax parse trees>>
+@
+
+In this section I define more functions to work on the parse tree of a Noweb
+document.
 
 <<functions for navigating noweb tool syntax parse trees>>=
 (defun peg-noweb-nth-document-file-name (nth-document parse-tree)
@@ -1048,16 +1026,16 @@ zeroth-indexed document."
 
 (defun peg-noweb-nth-document (nth-document parse-tree)
   "Return the subtree of the nth-indexed document in the parse tree."
-  (cl-second (nth nth-document parse-tree)))
+  (cdr (nth nth-document parse-tree)))
 
 (defun peg-noweb-nth-chunk-of-document (n document)
   "Return the subtree for the Nth chunk of a noweb document parse subtree."
-  (nth n document))
+  (nth (1+ n) document))
 
 (defun peg-noweb-chunk-number (chunk)
   "Return the chunk number of CHUNK."
-  (or (cdr (assq 'code chunk))
-      (cdr (assq 'docs chunk))))
+  (or (cdr (rassq 'code chunk))
+      (cdr (rassq 'docs chunk))))
 
 (defun peg-noweb-nth-chunk-of-nth-noweb-document (nth-chunk nth-document parse-tree)
   (peg-noweb-nth-chunk-of-document nth-chunk (peg-noweb-nth-document nth-document parse-tree)))
@@ -1116,7 +1094,7 @@ If the two associations shouldn't be joined, return them to the stack."
     (when peg-noweb--first-stringy-token? (setq peg-noweb--first-stringy-token? nil))))
 @
 
-\section{Emacs LISP definitions}
+\section{Emacs LISP autodefinitions}
 \label{sec:emacs-lisp-definitions}
 
 The built-in package \texttt{PEG} greatly simplifies the source code of this
@@ -1124,30 +1102,46 @@ package: rather than relying on an autodefs.elisp file written in AWK we can use
 PEG parsing to manage Emacs LISP definitions when we see them. The following
 PEXs are based off the AWK code written by Joseph S. Riel.
 
-<<autodefs.elisp>>=
+The following grammar should be parameterizable using an Emacs LISP
+customization varible which allows users to list the symbols of functions and
+macros which define things. For example, \texttt{define-peg-rule} and
+\texttt{define-peg-ruleset} define PEG-related things, but when peg-noweb is
+parsing a noweb with emacs lisp which defines peg rules and rulesets the
+identifiers defined with these functions or macros would not be marked up
+properly. Therefore, at least within Emacs, we can use Emacs LISP to mark up
+Noweb texts with the necessary @defn options PEG parsing rather than regular
+expressions in AWK.
+
+<<Emacs-LISP-autodefinitions.peg.el>>=
 ;; Derived from AWK code released under the GNU GPL v2 license by Joseph S. Riel;
 ;; that code is Copyright (c) 2005-2015 by Joseph S. Riel.  All rights reserved.
 (whitespace (+ (or " " "\t")))
 (identifier; FIXME: the `action' is not valid; it must insert the matched text into the stream as below.
  (substring (+ (not (or " " "\t" "\n" "()"))))
  (action (insert (string-join `("@index" "defn" peg--stack)) )))
-(def-x (or "defun"
-           "defvar"
-           "defconst"
-           "defgroup"
-           "defalias"
-           "defsubst"
-           "defmacro"
-           "defcustom"
-           "defadvice"
-           "defimage"))
-(define-x (or "define-minor-mode"
-              "define-derived-mode"
-              "define-abbrev"
-              "define-category"
-              "define-prefix-command"
-              "define-key-after"))
-(definitions (bol) "@text" whitespace (or def-x define-x) whitespace identifier (eol) "\n")
+(defxxx (or "defun"
+            "defvar"
+            "defconst"
+            "defgroup"
+            "defalias"
+            "defsubst"
+            "defmacro"
+            "defcustom"
+            "defadvice"
+            "defimage"))
+(define (or "define-minor-mode"
+            "define-derived-mode"
+            "define-abbrev"
+            "define-category"
+            "define-prefix-command"
+            "define-key-after"))
+(definitions (bol) "@text" whitespace
+             (or defxxx define) whitespace
+             ;; FIXME: `identifier' is not a variable containing the matched
+             ;; substring. TODO: insert `@defn', and replace `@text' so that it
+             ;; remains.
+             (replace (substring identifier) identifier)
+             (eol) "\n")
 @ 
 
 
