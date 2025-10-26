@@ -1,0 +1,2 @@
+src/*.nw linguist-language=elisp
+Makefile linguist-language=Makefile
