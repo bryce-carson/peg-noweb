@@ -611,13 +611,17 @@ they are adjacent on the \texttt{peg--stack}.
   (bol) "@text" spc (substring (* (and (not "\n") (any)))) nl
   ;; MAYBE FIXME: the concatenation is embedded directly in the rule. I don't
   ;; remember integrating this, but if it works keep it!
-  `(txt -- (peg-noweb-concatenate-text-tokens (cons 'text txt))))
+  ;; NOTE: deprecated.
+  ;; `(txt -- (peg-noweb--concatenate-text-tokens (cons 'text txt)))
+  `(txt -- (cons 'text txt)))
 (define-peg-rule nwnl ()
   (bol) (substring "@nl") nl (action (setf peg-noweb--file-number-record
                                            (1+ peg-noweb--file-number-record)))
   ;; Be sure that when thinking about the symbol `nl' here that
   ;; you're not confusing it with the peg rule nl.
-  `(nl -- (peg-noweb-concatenate-text-tokens (cons 'nl "\n"))))
+  ;; NOTE: deprecated.
+  ;; `(nl -- (peg-noweb--concatenate-text-tokens (cons 'nl "\n")))
+  `(nl -- (cons 'nl "\n")))
 @
 
 Nowebs are built from chunks, so the definition and usage of (i.e.
@@ -1017,28 +1021,22 @@ In this section I define more functions to work on the parse tree of a Noweb
 document.
 
 <<functions for navigating noweb tool syntax parse trees>>=
-(defun peg-noweb-nth-document-file-name (nth-document parse-tree)
-  "Return the file name of the nth-indexed document in the parse tree.
+(defun peg-noweb-document (nth-document parse-tree)
+  "Return the `nth' document in the parse tree, represented as a list of the documents' name and then its parse subtree."
+  (nth nth-document parse-tree))
 
-For the first document in the parse tree, that is the
-zeroth-indexed document."
-  (cl-first (nth nth-document parse-tree)))
+(defalias 'peg-noweb-filename #'cl-first
+  "Return the file name of the DOCUMENT parse tree.")
 
-(defun peg-noweb-nth-document (nth-document parse-tree)
-  "Return the subtree of the nth-indexed document in the parse tree."
-  (cdr (nth nth-document parse-tree)))
-
-(defun peg-noweb-nth-chunk-of-document (n document)
+(defun peg-noweb-chunk (nth-chunk document)
   "Return the subtree for the Nth chunk of a noweb document parse subtree."
-  (nth (1+ n) document))
+  (nth nth-chunk document))
 
-(defun peg-noweb-chunk-number (chunk)
-  "Return the chunk number of CHUNK."
-  (or (cdr (rassq 'code chunk))
-      (cdr (rassq 'docs chunk))))
-
-(defun peg-noweb-nth-chunk-of-nth-noweb-document (nth-chunk nth-document parse-tree)
-  (peg-noweb-nth-chunk-of-document nth-chunk (peg-noweb-nth-document nth-document parse-tree)))
+(defun peg-noweb-chunk-attributes (chunk)
+  "Return a list of the CHUNK number, type, and name (if it has one)."
+  (list (cl-first chunk)
+        (if-let* ((name (assq 'chunk chunk)))
+            (cdr name))))
 
 (defun peg-noweb-chunk-text (chunk)
   "Join all the strings returned from the collection in the loop,
@@ -1049,14 +1047,8 @@ and return the single string."
               (cdr elt)))
    ""))
 
-(defun peg-noweb-chunk-name (chunk)
-  "Return non-nil if CHUNK is a code chunk, and thereby has a name.
-
-The return value, if non-nil, is actually the name of the chunk."
-  (if-let ((name (assq 'chunk chunk)))
-      (cdr name)))
-
-(defun peg-noweb-concatenate-text-tokens (new-token)
+;; NOTE: deprecated.
+(defun peg-noweb--concatenate-text-tokens (new-token)
   "Join the values of two text token associations in a two-element token alist.
 
 If the two associations shouldn't be joined, return them to the stack."
@@ -1092,6 +1084,46 @@ If the two associations shouldn't be joined, return them to the stack."
         (push previous-token peg--stack)
         new-token)
     (when peg-noweb--first-stringy-token? (setq peg-noweb--first-stringy-token? nil))))
+
+(defun peg-noweb-document-deparse (document)
+  "Deparse DOCUMENT to produce its markup representation."
+  (string-join
+   (cons (format "@file %s" (cl-first document))
+         (cl-loop for n from 1 to (1- (length (cdr document))); NOTE: skip the name in first position and the `nil' in last position.
+                  collect
+                  (let* ((chunk (peg-noweb-chunk n document))
+                         (cons-cell (or (rassq 'code chunk)
+		                                    (rassq 'docs chunk)))
+	                       (i (if (consp cons-cell)
+                                (car cons-cell)
+                              (error "The element was expected to be a cons cell, but it wasn't!")))
+	                       (kind (symbol-name (cdr cons-cell)))
+	                       (name (cdr (assq 'chunk chunk))))
+                    (string-join (flatten-list (list (format "@%s %s %d" "begin" kind i)
+                                                     (if (string= kind "code")
+	                                                       (format "@defn %s" (if name name "")))
+                                                     (peg-noweb-chunk-deparse-contents (cddr chunk))
+                                                     (format "@%s %s %d" "end" kind i)))
+                                 "\n"))
+                  into X
+                  finally return X))
+   "\n"))
+
+
+(defun peg-noweb-chunk-deparse-contents-text (text)
+  (cl-loop for line in (string-split text "\n") collect
+           (if (string-empty-p line)
+	             "@nl"
+             (format "@text %s\n@nl" line))
+           into x finally return (string-join x "\n")))
+
+(defun peg-noweb-chunk-deparse-contents (contents)
+  (cl-loop
+   for (k . v) in contents collect
+   (cl-case k
+     ((text defn) (format "@%s %s" (symbol-name k) v))
+     ('nl "@nl")
+     ('chunk-child-usage (format "@use %s" v)))))
 @
 
 \section{Emacs LISP autodefinitions}
@@ -1118,7 +1150,7 @@ expressions in AWK.
 (whitespace (+ (or " " "\t")))
 (identifier; FIXME: the `action' is not valid; it must insert the matched text into the stream as below.
  (substring (+ (not (or " " "\t" "\n" "()"))))
- (action (insert (string-join `("@index" "defn" peg--stack)) )))
+ (action (insert (string-join `("@index" "defn" peg--stack)))))
 (defxxx (or "defun"
             "defvar"
             "defconst"
