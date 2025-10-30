@@ -29,5 +29,6 @@ test-interactive: tangle
 
 weave:
 	mkdir -p $(BUILD)
-	noweave -delay -autodefs elisp -index $(SRC)/peg-noweb.nw > $(BUILD)/peg-noweb.tex
+	# noweave -delay -autodefs elisp -index $(SRC)/peg-noweb.nw > $(BUILD)/peg-noweb.tex
+	noweave -delay $(SRC)/peg-noweb.nw > $(BUILD)/peg-noweb.tex
 	cd $(BUILD) && latexmk --xelatex --interaction=nonstopmode -f peg-noweb.tex

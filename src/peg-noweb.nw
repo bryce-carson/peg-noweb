@@ -60,8 +60,14 @@
 <<Licensing and copyright>>
 
 ;;; Commentary:
-;; This file defines a PEG ruleset for Noweb's tool syntax, which is used to
-;; extend Noweb with UNIX tools like AWK or sed.
+;; This file defines a PEG ruleset for Noweb's tool syntax, which is normally
+;; used to extend Noweb with UNIX tools like AWK or sed. Parsing the tool syntax
+;; allows it to be manipulated as LISP data, and potentially used as LISP code
+;; depending on the user-provided extensions.
+;;
+;; The main purpose of this package is to separate the concern of maintaining
+;; the grammar for the tool syntax and the maintenance of WHYSE, which was
+;; originally designed with PEG parsing at its core.
 
 ;;; Code:
 <<PEG rules and the Noweb ruleset>>
@@ -176,8 +182,9 @@ each having exclusively local values during parsing.
   "The current line of the current file being processed by peg-noweb.
 `peg-noweb--file-number-record' emulates \"FNR\" in the AWK programming
 language.")
+;; NOTE: deprecated.
 (defvar peg-noweb--first-stringy-token? t
-  "Is the current potentially the beginning of a series of \"@text\" tokens?")
+  "Is the current token the (possible) beginning of a series of \"@text\" tokens?")
 (defvar peg-noweb--parser-within-code-chunk? nil
   "Whether the peg-noweb parser is currently within a code chunk.")
 (defvar peg-noweb--parse-success t
@@ -311,6 +318,7 @@ grammar it defines are given in other sections.
     idx
     xr
 
+    i-nl; NOTE: deprecated in Noweb 2.10.
     i-define-or-use
 
     i-definitions
@@ -326,8 +334,7 @@ grammar it defines are given in other sections.
     i-entrydefn
     i-entryuse
 
-    i-localdefn
-    i-nl
+    i-localdefn; NOTE: not widely used nor well-documented.
 
     x-label
     x-ref
@@ -609,18 +616,10 @@ they are adjacent on the \texttt{peg--stack}.
 <<chunks and their boundaries>>=
 (define-peg-rule text ()
   (bol) "@text" spc (substring (* (and (not "\n") (any)))) nl
-  ;; MAYBE FIXME: the concatenation is embedded directly in the rule. I don't
-  ;; remember integrating this, but if it works keep it!
-  ;; NOTE: deprecated.
-  ;; `(txt -- (peg-noweb--concatenate-text-tokens (cons 'text txt)))
   `(txt -- (cons 'text txt)))
 (define-peg-rule nwnl ()
-  (bol) (substring "@nl") nl (action (setf peg-noweb--file-number-record
-                                           (1+ peg-noweb--file-number-record)))
-  ;; Be sure that when thinking about the symbol `nl' here that
-  ;; you're not confusing it with the peg rule nl.
-  ;; NOTE: deprecated.
-  ;; `(nl -- (peg-noweb--concatenate-text-tokens (cons 'nl "\n")))
+  (bol) (substring "@nl") nl
+  (action (cl-incf peg-noweb--file-number-record))
   `(nl -- (cons 'nl "\n")))
 @
 
@@ -633,12 +632,12 @@ references to) a chunk are important keywords.
   `(name -- (cons 'chunk name)))
 
 ;; In @<<whyse.el>>=, it leads to usages tokens like below:
-;; (chunk-child-usage . "Commentary")
-;; (chunk-child-usage . "Code")
+;; (use . "Commentary")
+;; (use . "Code")
 (define-peg-rule use ()
   (bol) "@use" spc (substring !eol) nl
   `(name --
-         (if name (cons 'chunk-child-usage name)
+         (if name (cons 'use name)
            (error "UH-OH! There's a syntax error in the tool output!"))))
 @
 
@@ -647,8 +646,8 @@ references to) a chunk are important keywords.
   Documentation may contain text and newlines, represented by \texttt{@text} and
   \texttt{@nl}. It may also contain quoted code bracketed by
   \texttt{@quote...@endquote}. Every \texttt{@quote} must be terminated by an
-  \texttt{@endquote} within the same chunk. Quoted code cor- responds to the
-  construct in the noweb source.
+  \texttt{@endquote} within the same chunk. Quoted code corresponds to the
+  \texttt{[[...]]} construct in the noweb source.
 \end{pquotation}
 
 <<quotations>>=
@@ -656,7 +655,7 @@ references to) a chunk are important keywords.
   (bol) "@quote" nl
   (action (when peg-noweb--parser-within-code-chunk?
             (error "The parser found a quotation within a code chunk. A @fatal should have been found here, but was not.")))
-  (substring (+ (and (not "@endquote") (any))))
+  (substring (+ (and (not (and (bol) "@endquote")) (any))))
   (bol) "@endquote" nl
   `(lst -- (cons 'quotation lst)))
 @
@@ -735,7 +734,7 @@ better explanation of the differences.
   (substring (or "defn" "use")) spc (substring !eol) nl
   (action
    (unless peg-noweb--parser-within-code-chunk?
-     (error "WHYSE parse error: index definition or index usage occurred outside of a code chunk.")))
+             (error "WHYSE parse error: index definition or index usage occurred outside of a code chunk.")))
   `(s1 s2 -- (cons (make-symbol s1) s2)))
 
 <<identifiers defined in a chunk>>
@@ -802,9 +801,10 @@ not widely used (assumedly) nor well-documented, so it is unsupported by
 ;; WHYSE (contributions for improved support are welcomed).
 (define-peg-rule i-localdefn ()
   idx "localdefn" spc !eol nl)
-(define-peg-rule i-nl ()
-  idx "nl" spc !eol nl
-  (action (error <<index nl error message>>)))
+;; FIXME: Noweb 2.13 sources include plenty of @index nl, so despite its
+;; deprecation it is still around in important documents.
+(define-peg-rule i-nl ();
+  idx "nl" nl)
 @
 
 \subsection{Cross referencing}
@@ -816,10 +816,10 @@ not widely used (assumedly) nor well-documented, so it is unsupported by
   xr (substring "ref" spc label) nl
   `(substr --  (cons 'ref (cadr (split-string substr)))))
 
-;; FIXME: improve the error handling at this point. It is not fragile
-;; any longer, because most things are ignored and this is hackish;
-;; however, the message reporting is not too helpful. It would be nice
-;; to have _only_ the chunk name reported, and formatted with @<< and >>.
+;; FIXME: improve the error handling at this point. It is not fragile any
+;; longer, because most things are ignored and this is hackish; however, the
+;; message reporting is not helpful. It would be nice to have _only_ the chunk
+;; name reported, and formatted with @<< and >>.
 ;;
 ;; TODO: Reproduction steps: make a reference to an undefined code chunk
 ;; within another code chunk. For fixing this issue, undefined code
@@ -1087,43 +1087,50 @@ If the two associations shouldn't be joined, return them to the stack."
 
 (defun peg-noweb-document-deparse (document)
   "Deparse DOCUMENT to produce its markup representation."
-  (string-join
-   (cons (format "@file %s" (cl-first document))
-         (cl-loop for n from 1 to (1- (length (cdr document))); NOTE: skip the name in first position and the `nil' in last position.
-                  collect
-                  (let* ((chunk (peg-noweb-chunk n document))
-                         (cons-cell (or (rassq 'code chunk)
-		                                    (rassq 'docs chunk)))
-	                       (i (if (consp cons-cell)
-                                (car cons-cell)
-                              (error "The element was expected to be a cons cell, but it wasn't!")))
-	                       (kind (symbol-name (cdr cons-cell)))
-	                       (name (cdr (assq 'chunk chunk))))
-                    (string-join (flatten-list (list (format "@%s %s %d" "begin" kind i)
-                                                     (if (string= kind "code")
-	                                                       (format "@defn %s" (if name name "")))
-                                                     (peg-noweb-chunk-deparse-contents (cddr chunk))
-                                                     (format "@%s %s %d" "end" kind i)))
-                                 "\n"))
-                  into X
-                  finally return X))
-   "\n"))
+  (concat (string-join
+           (cons (format "@file %s" (cl-first document))
+                 (cl-loop for chunk in (cl-rest document)
+                          when chunk collect
+                          (let* ((cons-cell (or (rassq 'code chunk)
+		                                            (rassq 'docs chunk)))
+                                 (i (car cons-cell))
+	                               (kind (symbol-name (cdr cons-cell)))
+	                               (name (cdr (assq 'chunk chunk))))
+                            (string-join (flatten-list (list (format "@%s %s %d" "begin" kind i)
+                                                             (if (string= kind "code")
+	                                                               (format "@defn %s" (if name name "")))
+                                                             (peg-noweb-chunk-deparse-contents chunk)
+                                                             (format "@%s %s %d" "end" kind i)))
+                                         "\n"))
+                          into X
+                          finally return X))
+           "\n")
+          "\n"))
+@
 
+The following function is deprecated, but is included because I don't want to
+delete it now nor resurrect it later with Git.
 
+<<functions for navigating noweb tool syntax parse trees>>=
 (defun peg-noweb-chunk-deparse-contents-text (text)
   (cl-loop for line in (string-split text "\n") collect
            (if (string-empty-p line)
 	             "@nl"
              (format "@text %s\n@nl" line))
            into x finally return (string-join x "\n")))
+@
 
-(defun peg-noweb-chunk-deparse-contents (contents)
+This function is not deprecated, however. It is very much current.
+
+<<functions for navigating noweb tool syntax parse trees>>=
+(defun peg-noweb-chunk-deparse-contents (chunk)
   (cl-loop
-   for (k . v) in contents collect
+   for (k . v) in (cdr chunk) while k collect
    (cl-case k
      ((text defn) (format "@%s %s" (symbol-name k) v))
-     ('nl "@nl")
-     ('chunk-child-usage (format "@use %s" v)))))
+     (nl "@nl")
+     (quotation (format "@quote\n%s@endquote" v))
+     (use (format "@use %s" v)))))
 @
 
 \section{Emacs LISP autodefinitions}
