@@ -318,7 +318,6 @@ grammar it defines are given in other sections.
     idx
     xr
 
-    i-nl; NOTE: deprecated in Noweb 2.10.
     i-define-or-use
 
     i-definitions
@@ -335,6 +334,7 @@ grammar it defines are given in other sections.
     i-entryuse
 
     i-localdefn; NOTE: not widely used nor well-documented.
+    i-nl; NOTE: deprecated in Noweb 2.10.
 
     x-label
     x-ref
@@ -582,6 +582,7 @@ quotation
 line
 language
 ;; index
+i-nl
 i-define-or-use
 i-definitions
 ;; xref

@@ -16,6 +16,11 @@
 (defvar files
   (mapcar #'expand-file-name (directory-files-recursively "~/src/noweb/src"
                                                           ".*\\.nw$")))
+(defvar files-parsed (eval `(peg-noweb-parse-files ,@files)))
+(defvar files-parsed-deparsed
+  (cl-loop for document in files-parsed collect
+	   (peg-noweb-document-deparse document)))
+(peg-noweb-parse-files (expand-file-name "~/src/whyse/src/whyse.nw"))
 
 ;; (peg-noweb-parse-files "/home/bryce/src/noweb/src/awk/noindex.nw")
 ;; (peg-noweb-parse-files "/home/bryce/src/noweb/src/awk/tohtml.nw")
@@ -77,14 +82,10 @@
 ;; (peg-noweb-parse-files "/home/bryce/src/noweb/src/xdoc/noroots.nw")
 ;; (peg-noweb-parse-files "/home/bryce/src/noweb/src/xdoc/nowebfilters.nw")
 ;; (peg-noweb-parse-files "/home/bryce/src/noweb/src/xdoc/sl2h.nw")
-
-;; FIXME: the following files cannot be parsed without
-;; `wrong-type-argument' errors when `make-symol' is called during
-;; `peg-postprocess'.
-(peg-noweb-parse-files "/home/bryce/src/noweb/src/icon/totex.nw"); (nl . "\n")
-(peg-noweb-parse-files "/home/bryce/src/noweb/src/shell/roff.nw"); (defn . "delay")
-(peg-noweb-parse-files "/home/bryce/src/noweb/src/shell/toroff.nw"); (defn . "delay")
-(peg-noweb-parse-files "/home/bryce/src/noweb/src/tex/multlang.nw"); (defn . "\\codehsize")
-(peg-noweb-parse-files "/home/bryce/src/noweb/src/lib/toascii.nw"); (defn . "delay")
-(peg-noweb-parse-files "/home/bryce/src/noweb/src/awk/noidx.nw"); (defn . "lines")
-(peg-noweb-parse-files "/home/bryce/src/noweb/src/awk/totex.nw"); (defn . "lines")
+;; (peg-noweb-parse-files "/home/bryce/src/noweb/src/icon/totex.nw")
+;; (peg-noweb-parse-files "/home/bryce/src/noweb/src/shell/roff.nw")
+;; (peg-noweb-parse-files "/home/bryce/src/noweb/src/shell/toroff.nw")
+;; (peg-noweb-parse-files "/home/bryce/src/noweb/src/tex/multlang.nw")
+;; (peg-noweb-parse-files "/home/bryce/src/noweb/src/lib/toascii.nw")
+;; (peg-noweb-parse-files "/home/bryce/src/noweb/src/awk/noidx.nw")
+;; (peg-noweb-parse-files "/home/bryce/src/noweb/src/awk/totex.nw")
