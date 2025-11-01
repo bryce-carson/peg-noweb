@@ -1,8 +1,11 @@
-\documentclass{article}
+\documentclass{article}% TODO: modify the hilbert book class template, reducing
+                       % the page paper size to the dimensions 105mm width and
+                       % 170mm height, the same as the paper in *The Warlock
+                       % Insane*, which is a nice paperback size. Adjust its
+                       % margins as well.
 
 \usepackage{hyperref}
 \usepackage{quoting,xparse}
-\usepackage{biblatex}
 \usepackage{noweb}
 
 \newcommand{\whyse}{\textsc{WHYSE}}
@@ -30,7 +33,7 @@
   The \textsc{peg} package for \textsc{Emacs} provides automatic parser
   generation from a formal grammar. The grammar for noweb released in this
   package is based off of the description of \emph{the tool syntax} given in the
-  \cite[Noweb Hacker's Guide]{ramsey1992}.
+  \textit{Noweb Hacker's Guide}.
 
   The formal grammar for Norman Ramsey's popular Noweb was completed during the
   early development of \whyse{}, a package separate from this one. Having a
@@ -917,14 +920,14 @@ The first step is to ensure the association lists in the parse tree are in a
 format that is acceptable to built-in Emacs Lisp functions; this will make it
 easier to navigate the tree and transform it. Other texts call this manipulation
 of the parse tree ``list destructuring'' (see
-\Url{https://www.lispworks.com/documentation/lcl50/loop/loop-47.html}).
+\url{https://www.lispworks.com/documentation/lcl50/loop/loop-47.html}).
 
-Some associations are reductions from the "initial parse tree",
-which---thanks to the \textsc{peg} package and \textit{PEG parsing in
-  general}---are not reduced after parsing but during and so constitute the
-original parse tree as returned by \texttt{peg}. Modifications to the
-parsing procedure overall can occur directly without losing information, and
-thanks to literate programming should be easy for advanced users.
+Some associations are reductions from the "initial parse tree", which---thanks
+to the \textsc{peg} package and \textit{PEG parsing in general}---are not
+reduced after parsing but during and so constitute the original parse tree as
+returned by \texttt{peg}. Modifications to the parsing procedure overall can
+occur directly without losing information, and thanks to literate programming
+should be easy for advanced users.
 
 The "initial parse tree" looks like the one below.
 
