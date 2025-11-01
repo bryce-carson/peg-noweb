@@ -582,7 +582,7 @@ quotation
 line
 language
 ;; index
-i-nl
+i-nl; NOTE: recognized, but unsupported.
 i-define-or-use
 i-definitions
 ;; xref
@@ -655,7 +655,7 @@ references to) a chunk are important keywords.
 (define-peg-rule quotation ()
   (bol) "@quote" nl
   (action (when peg-noweb--parser-within-code-chunk?
-            (error "The parser found a quotation within a code chunk. A @fatal should have been found here, but was not.")))
+            (error "The parser found a @quote within a code chunk. A @fatal should have been substituted here by a previous tool, but was not.")))
   (substring (+ (and (not (and (bol) "@endquote")) (any))))
   (bol) "@endquote" nl
   `(lst -- (cons 'quotation lst)))
@@ -789,26 +789,35 @@ those recognized by the autodefinitions filter).
   `(use lst -- (cons 'use lst)))
 @
 
-The following chunk's name is documentation enough for the purposes of
-\whyse{}. See the Noweb Hacker's Guide for more information.
-
-\texttt{@index nl} was deprecated in Noweb 2.10, and \texttt{@index localdefn} is
-not widely used (assumedly) nor well-documented, so it is unsupported by
-\whyse{} (contributions for improved support are welcomed).
+\texttt{@index nl} was deprecated in Noweb 2.10, and \texttt{@index localdefn}
+is not widely used (assumedly) nor well-documented, so it is unsupported by
+\texttt{peg-noweb}. Contributions for support might not be accepted, but will be
+reviewed; most users should avoid the exotic syntax, I believe. See the Noweb
+Hacker's Guide for more information.
 
 <<unsupported indexing keywords>>=
-;; @index nl was deprecated in Noweb 2.10, and @index localdefn is not
-;; widely used (assumedly) nor well-documented, so it is unsupported by
-;; WHYSE (contributions for improved support are welcomed).
 (define-peg-rule i-localdefn ()
-  idx "localdefn" spc !eol nl)
-;; FIXME: Noweb 2.13 sources include plenty of @index nl, so despite its
-;; deprecation it is still around in important documents.
-(define-peg-rule i-nl ();
-  idx "nl" nl)
+  idx "localdefn" spc !eol nl
+  (action (error "\"@index localdefn IDENTIFIER_LIST\" was detected during
+parsing, indicating unsupported, exotic syntax. Are you Oren Ben-Kiki?
+Ramsey wrote in the *Noweb Hacker's Guide* that this was exotic syntax
+(presumably) added specifically for that user. Please submit a patch to support
+your use case, with argument.")))
+;; NOTE: Noweb 2.13 sources include plenty of @index nl, so despite its
+;; deprecation it is still around in important documents. TODO: submit a patch
+;; to the Noweb 2.13 sources which removes the hand-written definitions and adds
+;; a proper call to various autodefinitions filters to recognize identifiers.
+(define-peg-rule i-nl ()
+  idx "nl" nl
+  (action (error "\"@index nl\" detected during parsing, indicating deprected,
+hand-written \"@ %%def IDENTIFIER_LIST\" syntax in the Noweb source. This
+syntax was deprecated in Noweb 2.10, and is entirely unsupported. Write
+an autodefs.LANGUAGE program, which is usually an AWK script, for the
+language you are using if not listed in \"noweave -showautodefs\" output.")))
 @
 
 \subsection{Cross referencing}
+
 <<cross-referencing keywords>>=
 (define-peg-rule x-label ()
   xr (substring "label" spc label) nl
@@ -889,15 +898,6 @@ not widely used (assumedly) nor well-documented, so it is unsupported by
 (define-peg-rule fatal ()
   (bol) "@fatal"
   (action (error "[FATAL] There was a fatal error in the pipeline. Stash the work area and submit a bug report against Noweb, WHYSE, and other relevant tools.")))
-@
-
-<<index nl error message>>=
-(string-join
- '("\"@index nl\" detected."
-   "This indicates hand-written @ %def syntax in the Noweb source."
-   "This syntax was deprecated in Noweb 2.10, and is entirely unsupported."
-   "Write an autodefs AWK script for the language you are using.")
- "\n")
 @
 
 \section{Parse Tree Processing}
@@ -1088,25 +1088,24 @@ If the two associations shouldn't be joined, return them to the stack."
 
 (defun peg-noweb-document-deparse (document)
   "Deparse DOCUMENT to produce its markup representation."
-  (concat (string-join
-           (cons (format "@file %s" (cl-first document))
-                 (cl-loop for chunk in (cl-rest document)
-                          when chunk collect
-                          (let* ((cons-cell (or (rassq 'code chunk)
-		                                            (rassq 'docs chunk)))
-                                 (i (car cons-cell))
-	                               (kind (symbol-name (cdr cons-cell)))
-	                               (name (cdr (assq 'chunk chunk))))
-                            (string-join (flatten-list (list (format "@%s %s %d" "begin" kind i)
-                                                             (if (string= kind "code")
-	                                                               (format "@defn %s" (if name name "")))
-                                                             (peg-noweb-chunk-deparse-contents chunk)
-                                                             (format "@%s %s %d" "end" kind i)))
-                                         "\n"))
-                          into X
-                          finally return X))
-           "\n")
-          "\n"))
+  (let* ((x (cl-loop for chunk in (cl-rest document)
+                     when chunk collect
+                     (let* ((cons-cell (or (rassq 'code chunk)
+		                                       (rassq 'docs chunk)))
+                            (i (car cons-cell))
+	                          (kind (symbol-name (cdr cons-cell)))
+	                          (name (cdr (assq 'chunk chunk))))
+                       (string-join (flatten-list (list (format "@%s %s %d" "begin" kind i)
+                                                        (if (string= kind "code")
+	                                                          (format "@defn %s" (if name name "")))
+                                                        (peg-noweb-chunk-deparse-contents chunk)
+                                                        (format "@%s %s %d" "end" kind i)))
+                                    "\n"))
+                     into X
+                     finally return X))
+         (y (cons (format "@file %s" (cl-first document)) x))
+         (z (string-join y "\n")))
+    (concat z "\n")))
 @
 
 The following function is deprecated, but is included because I don't want to
@@ -1131,6 +1130,7 @@ This function is not deprecated, however. It is very much current.
      ((text defn) (format "@%s %s" (symbol-name k) v))
      (nl "@nl")
      (quotation (format "@quote\n%s@endquote" v))
+     (index (format "@index %s" v))
      (use (format "@use %s" v)))))
 @
 
