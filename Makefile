@@ -11,6 +11,17 @@ finduses ?= ${NOWEB_LIB}/finduses
 noidx ?= ${NOWEB_LIB}/noidx
 autodefs_elisp ?= ${NOWEB_LIB}/autodefs.elisp
 
+SRCPEGNoweb = "\"$(BUILD)/peg-noweb-0.1/peg-noweb.el\""
+LoadPEGNoweb = "(and (load-library \"peg\") (load $(SRCPEGNoweb)))"
+
+SRCPEGNowebTest = "\"$(TEST)/test.el\""
+LoadPEGNowebTest = "(find-file $(SRCPEGNowebTest)) (eval-buffer)"
+ConditionallyLoadPEGNowebTest = "(when $(LoadPEGNoweb) $(LoadPEGNowebTest))"
+
+SRCPolymode = "\"/home/bryce/.emacs.d/elpa/30.2/develop/polymode-20250617.1033\""
+SRCPolynoweb = "\"/home/bryce/.emacs.d/elpa/30.2/develop/poly-noweb-20200316.1315\""
+LoadPolynoweb = "(add-to-list 'load-path $(SRCPolymode)) (add-to-list 'load-path $(SRCPolynoweb)) (load-library \"poly-noweb\")"
+
 clean:
 	$(RM) --recursive --force $(BUILD)
 
@@ -25,7 +36,8 @@ tangle: clean
 
 ## TODO: makem.sh is suposed to be easier than what I'm doing... read the documentation carefully!
 test-interactive: tangle
-	emacs --quick --eval="(when (and (load-library \"peg\") (load \"$(BUILD)/peg-noweb-0.1/peg-noweb.el\") (find-file \"$(TEST)/test.el\") (eval-buffer)))"
+	# emacs --quick --eval="(progn $(ConditionallyLoadPEGNowebTest) $(LoadPolynoweb))"
+	emacs --quick --eval="(progn $(LoadPEGNoweb) $(LoadPolynoweb))"
 
 weave:
 	mkdir -p $(BUILD)
