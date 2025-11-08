@@ -157,6 +157,7 @@ command distributed in Noweb which must be on the user's PATH.
                          (file-name-directory (buffer-substring (goto-line 3) (- (point-at-eol) 2)))))
   "The directory containing Noweb filters, which also contains the executable `markup' in particular."
   :group 'peg-noweb)
+
 @
 
 It's immediately useful to have a function to markup noweb files to produce the
@@ -191,9 +192,6 @@ each having exclusively local values during parsing.
   "The current line of the current file being processed by peg-noweb.
 `peg-noweb--file-number-record' emulates \"FNR\" in the AWK programming
 language.")
-;; NOTE: deprecated.
-(defvar peg-noweb--first-stringy-token? t
-  "Is the current token the (possible) beginning of a series of \"@text\" tokens?")
 (defvar peg-noweb--parser-within-code-chunk? nil
   "Whether the peg-noweb parser is currently within a code chunk.")
 (defvar peg-noweb--parse-success t
@@ -231,8 +229,7 @@ to \texttt{nomarkup}, and the output is captured by Emacs.
 (defun peg-noweb-parse-at-point ()
   "Parse the current buffer beginning at point."
   (with-peg-rules (peg-noweb-ruleset)
-    (let (peg-noweb--parser-within-code-chunk?; nil
-          (peg-noweb--first-stringy-token? t))
+    (let (peg-noweb--parser-within-code-chunk?)
       (peg-run (peg noweb) #'peg-noweb--parse-failure))))
 
 (defun peg-noweb-parse-files (&rest files)
@@ -241,6 +238,7 @@ to \texttt{nomarkup}, and the output is captured by Emacs.
     (with-temp-buffer
       (unless (listp files)
         (error "FILES is not a list!"))
+      ;; TODO: implement support for "projects" and customized markup pipelines.
       (eval `(call-process (expand-file-name "markup" peg-noweb-filter-directory)
                            nil t nil ,@files))
       (peg-noweb-parse-buffer (current-buffer)))))
@@ -510,7 +508,7 @@ stack are balanced.
     (if (and (= ordinal-one ordinal-two) (string= kind-one kind-two))
         (cons (cons ordinal-one
                     (if (string= kind-one "code")
-                        'code
+                        (prog1 'code (setq peg-noweb--code-chunk-language nil))
                       'docs))
               keywords)
       (error "Chunk nesting error encountered."))))
@@ -675,18 +673,26 @@ references to) a chunk are important keywords.
   (bol) "@line" spc (substring ordinal) nl
   `(o -- (cons 'line o)))
 
-(define-peg-rule language ()
-  (bol) "@language" spc (substring words-eol))
+(define-peg-rule language (&optional lang)
+  (bol) "@language"
+  ;; NOTE: the action is taken early because if a partial match of the keyword
+  ;; is found, the rest of the line doesn't matter. Erroneous inclusion of
+  ;; multiple full or partial @language keywords is fatal.
+  (action (if (or (not peg-noweb--parser-within-code-chunk?)
+                  peg-noweb--code-chunk-language)
+              (error "The parser found a @language keyword within a code chunk. A @fatal should have been substituted here by a previous tool, but was not.")))
+  spc (action (setq peg-noweb--code-chunk-language (substring !eol))) nl)
 @
 
-The indexing and cross-referencing abilities of Noweb are excellent
-features which enable a reader to navigate through a printed (off-line)
-or on-line version of the literate document quite nicely. These
-functionalities each begin with a rule which matches only part of a line
-of the tool syntax since there are many indexing and cross-referencing
-keywords. The common part of each line is a rule which merely matches
-the \texttt{@index} or \texttt{@xref} keyword. The rest of the lines are handled
-by a list of rules in \texttt{index-keyword} or \texttt{xref-keyword}.
+The indexing and cross-referencing abilities of Noweb are
+excellent features which enable a reader to navigate through a
+printed (off-line) or on-line version of the literate document
+quite nicely. These functionalities each begin with a rule which
+matches only part of a line of the tool syntax since there are
+many indexing and cross-referencing keywords. The common part of
+each line is a rule which merely matches the \texttt{@index} or
+\texttt{@xref} keyword. The rest of the lines are handled by a
+list of rules in \texttt{index-keyword} or \texttt{xref-keyword}.
 
 The \textit{Noweb Hacker's Guide} lists these two lines in the ``Tagging
 keywords'' table, indicating that it's unlikely (or forbidden) that the
@@ -737,15 +743,21 @@ better explanation of the differences.
   (bol) "@index" spc)
 (define-peg-rule xr ()
   (bol) "@xref" spc)
+@
+
+As a note, the following rule only applies to unparsed text and should not be
+understood to benefit the Emacs LISP recognizer defined later. This rule is for
+parsing identifier-index definitions or usages inserted into the tool syntax by
+other filters, primarily already existing AWK filters.
 
 <<fundamental indexing keywords, which are restricted to within a code chunk>>=
 (define-peg-rule i-define-or-use ()
   idx
   (substring (or "defn" "use")) spc (substring !eol) nl
   (action
-   (unless peg-noweb--parser-within-code-chunk?
-             (error "WHYSE parse error: index definition or index usage occurred outside of a code chunk.")))
-  `(s1 s2 -- (cons (make-symbol s1) s2)))
+   (if (not peg-noweb--parser-within-code-chunk?)
+       (error "Index identifier definition or usage occurred outside of a code chunk.")))
+  `(s1 s2 -- (cons (make-symbol (concat "i-" s1)) s2)))
 
 <<identifiers defined in a chunk>>
 <<identifiers used in a chunk>>
@@ -909,134 +921,32 @@ language you are using if not listed in \"noweave -showautodefs\" output.")))
   (action (error "[FATAL] There was a fatal error in the pipeline. Stash the work area and submit a bug report against Noweb, WHYSE, and other relevant tools.")))
 @
 
-\section{Parse Tree Processing}
-\label{sec:parse-tree-processing}
+\section{Parse Tree Navigation}
+\label{sec:parse-tree-navigation}
 
-The parse tree is a list of noweb documents, each being a list
-themselves. The first atom of an inner list, corresonding to a document,
-is the filename of that document (hopefully the same filename as passed
-on the commmand-line elsewhere when the document is used).
-
-Deeper, each document-list contains as the second atom a list of its
-contents, which is an association list thereof. Each association in the
-alist is bewteen the symbol relating to the rule that generated the cons
-cell, and the contents appropriate to the symbol.
-
-The first step is to ensure the association lists in the parse tree are in a
-format that is acceptable to built-in Emacs Lisp functions; this will make it
-easier to navigate the tree and transform it. Other texts call this manipulation
-of the parse tree ``list destructuring'' (see
-\url{https://www.lispworks.com/documentation/lcl50/loop/loop-47.html}).
-
-Some associations are reductions from the "initial parse tree", which---thanks
-to the \textsc{peg} package and \textit{PEG parsing in general}---are not
-reduced after parsing but during and so constitute the original parse tree as
-returned by \texttt{peg}. Modifications to the parsing procedure overall can
-occur directly without losing information, and thanks to literate programming
-should be easy for advanced users.
-
-The "initial parse tree" looks like the one below.
-
-<<example-1>>=
-'((noweb-document-one
-   ((0 . docs)
-    (text . "\tex{} is cool!"))
-   ((1 . code)
-    (text . "(message \"LISP is awesome!\")")))
-  (noweb-document-two
-   ((0 . docs)
-    (text . "asdf is a system definition format in Common LISP,")
-    (nwnl . "\n")
-    (text . "and I like to use it."))
-   ((1 . code)
-    (text . "jkl; is the right-handed corollary of asdf."))
-   ((2 . docs)
-    (text . "\LaTeX{} is great!"))
-   ((3 . docs)
-    (text . "Noweb, written by Norman Ramsey is sweet!"))))
-@ 
-
-The reductions which occur during parsing make chunk zero of the second
-noweb document look like this in the final result.
-
-<<example-2>>=
-((0 . code)
- (text . "asdf is a system definition format in Common LISP, and I like to use it."))
-@ 
-
-The new result is much easier to use as data for other programs (SQL in
-this case). In the verbatim text a literal newline was inserted rather
-than retaining the escape sequence, which is exactly what happens in the
-reduction step as well. The next subsection discusses the details of how
-the reduction in complexity exampled above is achieved.
-
-\subsection{Reducing complexity in the alist}
-The first step in making the parse tree navigable for other programs is
-collapsing adjacent ``stringy'' tokens into single \texttt{text} tokens. The
-output tool syntax of notangle, and the parse tree resulting from the
-PEG, (breifly) contain individual text tokens for fragments of whole
-text lines and form feed characters. These tokens exist because the
-cross-referencing tokens fragment the text lines, and new lines in the
-noweb document are treated specially to facilitate this fragmentation.
-
-A small quote from the tool syntax of a development version of \whyse{} is
-shown in this example in its parsed form. However, during actual parsing
-these adjacent tokens are \textit{immediately collapsed} into singular
-tokens.
-
-<<example-3>>=
-(text . "  and \textsc{Noweb}'s \texttt{finduses.nw}!")
-(nwnl . "@nl")
-(text . "\end{enumerate}")
-(nwnl . "@nl")
-(text . "")
-(nwnl . "@nl")
-@ 
-
-To collapse these tokens into a single text token the \texttt{peg--stack}
-must be manipulated carefully. It isn't advisable to manipulate this
-variable in the course of a PEG grammar's actions. There is a use case
-for it when the previous rules and actions won't accommodate the
-necessary action without refactoring a larger part of the grammar. In
-this development version that is not a goal; basic functionality is
-sought after, not robustness or beauty, so hacking the desired behaviour
-together quickly is better.
-
-TODO: after some testing I have found that the initial form of the parse tree is
-not very useful. It is easier to work with the parse tree when some of the
-information is implicit, such as the chunk type and number. The chunk type can
-be implicitly indicated by using the first element of the association list of a
-chunk as its chunk name or nil; documentation chunks don't have names, but they
-do belong to LaTeX or HTML sections, so that's something to consider for later.
-
-\begin{verbatim}
-((nil "\\documentclass{article}")
- ("example-3" "print(\"Hi, ESS!\")"))
-\end{verbatim}
+The parse tree is a list of noweb documents, each being a list themselves. The
+first atom of an inner list, corresonding to a document, is the filename of that
+document (hopefully the same filename as passed on the commmand-line elsewhere
+when the document is used). The rest of the list is comprised of association
+lists, each describing the contents of a chunk. Each association in the alist
+is between the symbol relating to the rule that generated the cons cell, and the
+contents appropriate to the symbol; sometimes the car of the cons cell is not
+the symbol of the PEG rule, but something which harkens to it and is easier to
+type or is more descriptive.
 
 \subsection{Retrieving chunks}
 \label{sec:retrieving-chunks}
 
-\texttt{peg-noweb-nth-chunk-of-nth-noweb-document} retrieves the parse tree for the nth
-noweb document, which in the case of \texttt{whyse.nw} is the parse tree of
-the zeroth-indexed document. It's quite a simple function. To obtain a
-given chunk of this document from the parse tree the result of the
-function is called with \texttt{nth} and the index of the chunk.
+In this section I define more functions to work on the parse tree of a Noweb
+document.
 
 <<define functions>>=
 <<functions for navigating noweb tool syntax parse trees>>
-@
-
-In this section I define more functions to work on the parse tree of a Noweb
-document.
 
 <<functions for navigating noweb tool syntax parse trees>>=
 (defun peg-noweb-document (nth-document parse-tree)
   "Return the `nth' document in the parse tree, represented as a list of the documents' name and then its parse subtree."
   (nth nth-document parse-tree))
-
-(defalias 'peg-noweb-filename #'cl-first
-  "Return the file name of the DOCUMENT parse tree.")
 
 (defun peg-noweb-chunk (nth-chunk document)
   "Return the subtree for the Nth chunk of a noweb document parse subtree."
@@ -1057,44 +967,10 @@ and return the single string."
               (cdr elt)))
    ""))
 
-;; NOTE: deprecated.
-(defun peg-noweb--concatenate-text-tokens (new-token)
-  "Join the values of two text token associations in a two-element token alist.
+<<define functions>>=
+<<functions for deparsing documents and chunks>>
 
-If the two associations shouldn't be joined, return them to the stack."
-  (prog1
-      ;; Concatenation only occurs when the previous token examined was
-      ;; a text or nwnl token, ergo there must have been a text or nwnl
-      ;; token previously examined for any concatenation to occur. When
-      ;; no such token has been examined immediately return the
-      ;; (stringy) token recieved and indicate it must have been a
-      ;; stringy token by chaning the value of `peg-noweb--first-stringy-token?'
-      ;; accordingly. Subsequent runs will then operate on potential
-      ;; pairs of stringy tokens.
-      (if-let ((not-first-stringy-token? (not peg-noweb--first-stringy-token?))
-               (previous-token  (pop peg--stack))
-               ;; The previous token cannot be a text or nwnl token if
-               ;; it is not a list, and checking prevents causing an
-               ;; error by taking the `car' of a non-list token, e.g. the
-               ;; filename token.
-               (previous-token-is-alist?
-                (prog1 (and (listp previous-token)
-                            (listp new-token)
-                            (or (assoc 'text `(,new-token))
-                                (assoc 'nl `(,new-token)))
-                            (or (assoc 'text `(,previous-token))
-                                (assoc 'nl `(,previous-token)))))))
-          ;; Join the association's values and let the caller push a single
-          ;; token back onto the `peg--stack'.
-          (cons 'text (format "%s%s" (cdr previous-token)
-                              (cdr new-token)))
-
-        ;; Push the previous token back to the `peg--stack', and let the
-        ;; caller push the new token to that stack.
-        (push previous-token peg--stack)
-        new-token)
-    (when peg-noweb--first-stringy-token? (setq peg-noweb--first-stringy-token? nil))))
-
+<<functions for deparsing documents and chunks>>=
 (defun peg-noweb-document-deparse (document)
   "Deparse DOCUMENT to produce its markup representation."
   (let* ((x (cl-loop for chunk in (cl-rest document)
@@ -1112,26 +988,10 @@ If the two associations shouldn't be joined, return them to the stack."
                                     "\n"))
                      into X
                      finally return X))
-         (y (cons (format "@file %s" (cl-first document)) x))
+         (y (cons (format "@file %s" (car document)) x))
          (z (string-join y "\n")))
     (concat z "\n")))
-@
 
-The following function is deprecated, but is included because I don't want to
-delete it now nor resurrect it later with Git.
-
-<<functions for navigating noweb tool syntax parse trees>>=
-(defun peg-noweb-chunk-deparse-contents-text (text)
-  (cl-loop for line in (string-split text "\n") collect
-           (if (string-empty-p line)
-	             "@nl"
-             (format "@text %s\n@nl" line))
-           into x finally return (string-join x "\n")))
-@
-
-This function is not deprecated, however. It is very much current.
-
-<<functions for navigating noweb tool syntax parse trees>>=
 (defun peg-noweb-chunk-deparse-contents (chunk)
   (cl-loop
    for (k . v) in (cdr chunk) while k collect
