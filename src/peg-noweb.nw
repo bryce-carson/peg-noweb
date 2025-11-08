@@ -1161,38 +1161,84 @@ properly. Therefore, at least within Emacs, we can use Emacs LISP to mark up
 Noweb texts with the necessary @defn options PEG parsing rather than regular
 expressions in AWK.
 
-<<Emacs-LISP-autodefinitions.peg.el>>=
-;; Derived from AWK code released under the GNU GPL v2 license by Joseph S. Riel;
-;; that code is Copyright (c) 2005-2015 by Joseph S. Riel.  All rights reserved.
-(whitespace (+ (or " " "\t")))
-(identifier; FIXME: the `action' is not valid; it must insert the matched text into the stream as below.
- (substring (+ (not (or " " "\t" "\n" "()"))))
- (action (insert (string-join `("@index" "defn" peg--stack)))))
-(defxxx (or "defun"
-            "defvar"
-            "defconst"
-            "defgroup"
-            "defalias"
-            "defsubst"
-            "defmacro"
-            "defcustom"
-            "defadvice"
-            "defimage"))
-(define (or "define-minor-mode"
-            "define-derived-mode"
-            "define-abbrev"
-            "define-category"
-            "define-prefix-command"
-            "define-key-after"))
-(definitions (bol) "@text" whitespace
-             (or defxxx define) whitespace
-             ;; FIXME: `identifier' is not a variable containing the matched
-             ;; substring. TODO: insert `@defn', and replace `@text' so that it
-             ;; remains.
-             (replace (substring identifier) identifier)
-             (eol) "\n")
+<<simple lisp grammar>>=
+(define-peg-rule lisp-atom ()
+  (substring (+ (and (not (or [blank "()"] "\n")) (any))))
+  (* (or [blank] "\n")))
+(define-peg-rule lisp-form ()
+  "(" (opt [blank]) (list (or "nil" lisp-atom) (* (or lisp-atom lisp-form))) ")")
 @ 
 
+Recognizing a LISP form at the ``top level'' of web text will allow parsing;
+attempting to recognize forms at lower levels will lead to the misidentification
+of forms that are nested within others that may be quoted, for instance, in
+strings or other forms that quote others.
+
+For example, only one top-level definition is given below.
+
+<<example-n>>=
+(defvar example-defun-form
+  (quote (defun example () "Hello, world!")))
+(eval example-defun-form)
+(example)
+@ 
+
+The top-level definition is useful for higher-order programming, evaluating data
+as code, which is normal in LISP, but at the top-level of the program text
+itself the function ``example'' was not defined until run time, so recognizing
+the identifier may be misguided in larger, more complex programs. Therefore the
+recognizer is limited to top level forms.
+
+The grammar defined above for LISP forms is limited to the recognition of raw
+text and does not parse LISP forms found spread across multiple ``@text''
+keywords in Noweb tool syntax.
+
+<<define functions>>=
+;; Derived from AWK code released under the GNU GPL v2 license by Joseph S.
+;; Riel; that code is Copyright (c) 2005-2015 by Joseph S. Riel. All rights
+;; reserved.
+(defun peg-noweb--emacs-lisp-identifier-recognizer ()
+  "This function must only be called when the parser is within a code
+chunk, at the beginning of the line of a @text keyword."
+  (with-peg-rules
+      ((whitespace (+ (or " " "\t")))
+       (identifier (substring (+ (not (or " " "\t" "\n" "()"))))
+                   `(id -- (cons 'index id) id))
+       (definitions (bol) "@text" whitespace
+                    "(" (opt whitespace)
+                    ;; TODO: for performance, the following form should be cached!
+                    (or (funcall #'mapcar #'symbol-name peg-noweb-define-symbols))
+
+                    whitespace identifier (opt whitespace)))
+    (peg-run (peg definitions))))
+
+<<define variables>>=
+<<customization variables for recognizing Emacs LISP identifiers>>
+<<customization variables for recognizing Emacs LISP identifiers>>=
+(defcustom peg-noweb-define-symbols
+  (list 'defun
+        'defvar
+        'defconst
+        'defgroup
+        'defalias
+        'defsubst
+        'defmacro
+        'defcustom
+        'defadvice
+        'defimage
+        'define-minor-mode
+        'define-derived-mode
+        'define-abbrev
+        'define-category
+        'define-prefix-command
+        'define-key-after)
+  "The symbols in Emacs LISP which define things like variables, functions, macros, modes, etc.
+
+Symbols do not need to be `intern'-ed before parsing with PEG noweb, as only the `symbol-name' is used."
+  :type '(repeat symbol)
+  :group 'peg-noweb)
+
+@
 
 \end{document}
 
