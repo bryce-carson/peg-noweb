@@ -1143,7 +1143,7 @@ This function is not deprecated, however. It is very much current.
      (use (format "@use %s" v)))))
 @
 
-\section{Emacs LISP autodefinitions}
+\section{Emacs LISP autorecognize definitions}
 \label{sec:emacs-lisp-definitions}
 
 The built-in package \texttt{PEG} greatly simplifies the source code of this
