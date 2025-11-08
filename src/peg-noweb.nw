@@ -81,8 +81,8 @@
 ;;; Code:
 <<PEG rules and the Noweb ruleset>>
 <<define customization variables>>
-<<define functions>>
 <<define variables>>
+<<define functions>>
 
 (provide 'peg-noweb)
 
