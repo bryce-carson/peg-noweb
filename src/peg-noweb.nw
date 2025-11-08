@@ -7,6 +7,12 @@
 \usepackage{hyperref}
 \usepackage{quoting,xparse}
 \usepackage{noweb}
+% TODO: when *printing* the package for my records devise a usable size.
+% \noweboptions{footnotesizecode}
+% \usepackage{geometry}
+% \geometry{papersize={105mm, 170mm}}
+% \geometry{top=5mm, bottom=5mm, left=2mm, right=2}
+% \geometry{nomarginpar}
 
 \newcommand{\whyse}{\textsc{WHYSE}}
 
