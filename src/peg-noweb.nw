@@ -1,8 +1,4 @@
-\documentclass{article}% TODO: modify the hilbert book class template, reducing
-                       % the page paper size to the dimensions 105mm width and
-                       % 170mm height, the same as the paper in *The Warlock
-                       % Insane*, which is a nice paperback size. Adjust its
-                       % margins as well.
+\documentclass{article}
 
 \usepackage{hyperref}
 \usepackage{quoting,xparse}
@@ -220,7 +216,9 @@ to \texttt{nomarkup}, and the output is captured by Emacs.
     (message "PEXes which failed:\n%S" lst)))
 
 (defun peg-noweb-parse-buffer (buffer)
-  "Parse the buffer, with BUFFER current."
+  "Parse the buffer, with BUFFER current.
+
+Parsing is accomplished with `peg-noweb-parse-at-point' after calling `point-min'."
   (interactive "bbuffer:")
   (with-current-buffer buffer
     (goto-char (point-min))
@@ -233,7 +231,9 @@ to \texttt{nomarkup}, and the output is captured by Emacs.
       (peg-run (peg noweb) #'peg-noweb--parse-failure))))
 
 (defun peg-noweb-parse-files (&rest files)
-  "Parse the Noweb files in FILES, calling `markup' on the files."
+  "Parse the Noweb files in FILES, calling `markup' on the files.
+
+Parsing is accomplished with `peg-noweb-parse-buffer'."
   (let ((files (mapcar #'expand-file-name files)))
     (with-temp-buffer
       (unless (listp files)
@@ -948,8 +948,14 @@ document.
   "Return the `nth' document in the parse tree, represented as a list of the documents' name and then its parse subtree."
   (nth nth-document parse-tree))
 
+(defun peg-noweb-document-name (web &optional nth-document)
+  "Return the document name of the first (zeroth) document.
+
+  With `nth-document', return the document name of the nth document."
+  (car (peg-noweb-document (if nth-document nth-document 0) web)))
+
 (defun peg-noweb-chunk (nth-chunk document)
-  "Return the subtree for the Nth chunk of a noweb document parse subtree."
+  "Return the subtree for the nth chunk of a noweb document."
   (nth nth-chunk document))
 
 (defun peg-noweb-chunk-attributes (chunk)
