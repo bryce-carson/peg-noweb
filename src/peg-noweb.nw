@@ -933,12 +933,39 @@ function which returns the tool syntax.
 @ 
 
 It's annoying to chain together multiple function, so I'll write a central
-API function named for the package alone. This function will 
+API function: [[peg-noweb]]. This function will make it easier to just pass a
+command to parse one noweb file and retrieve the first document (file) from it.
+
+<<define functions>>=
+<<[[peg-noweb]], the unifying function>>
 
 <<[[peg-noweb]], the unifying function>>=
-(defun peg-noweb (command)
-  "Parse the tool syntax returned by COMMAND and extract the first document."
-  (peg-noweb-document (peg-noweb-parse-files command) parcel))
+(defun peg-noweb (&rest args)
+  "Parse the tool syntax returned by a shell command and extract the first document.
+
+With ARGS being: `:index', return just the chunk and identifier indices;
+with `:project' and a following project name, call
+`whyse-project-markup-command'."
+  (if (not (or (seq-contains-p args :project)
+               (seq-contains-p args :command)))
+      (error "`peg-noweb' requires either `:project' or `:command' keyword arguments with appropriate values be provided.")
+    (let* ((command (if (seq-contains-p args :project)
+                        (progn (error "Not yet implemented.")
+                               ;; FIXME: I think a struct is overkill at this point,
+                               ;; and the customize variable will be sufficient. Just
+                               ;; search through the values of the customization
+                               ;; variable `whyse-projects' for a project with the
+                               ;; appropriate name, then return the value associated
+                               ;; with the script key. TODO: obtain the project struct
+                               ;; so the script slot can be accessed.
+                               (let ((project (nth (1+ (cl-position :position args)) args)))
+                                 ;; Return the command contained in the script slot of project.
+                                 (whyse-project-script project)))
+                     (nth (1+ (cl-position :command args)) args)))
+          (document (peg-noweb-document 0 (peg-noweb-parse-files command))))
+      (when (seq-contains-p args :index)
+        (setq document (peg-noweb-document-indices document)))
+      document)))
 @ 
 
 
