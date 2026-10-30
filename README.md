@@ -1,0 +1,3 @@
+peg-noweb was once an integral part of WHYSE before being excised into a package of its own after some time of stalled development on WHYSE. After returning to WHYSE and making progress through concerted effort I have decided to reintegrate the peg parsing of noweb tool syntax into an integral part of the WHYSE project project.
+
+peg-noweb is archived and will not be updated because all updates will be made to the copy of the contents of this repository in WHYSE. See the [bryce-carson/WHYSE](https://github.com/bryce-carson/whyse) repository.
